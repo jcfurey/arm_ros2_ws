@@ -1,0 +1,178 @@
+{
+  "configById": {
+    "3D!18i6zy7": {
+      "layers": {
+        "845139cb-26bc-40b3-8161-8ab60af4baf5": {
+          "visible": true,
+          "frameLocked": true,
+          "label": "Grid",
+          "instanceId": "845139cb-26bc-40b3-8161-8ab60af4baf5",
+          "layerId": "foxglove.Grid",
+          "size": 10,
+          "divisions": 10,
+          "lineWidth": 1,
+          "color": "#248eff",
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "order": 1
+        }
+      },
+      "cameraState": {
+        "perspective": true,
+        "distance": 4.5,
+        "phi": 59.999999999994884,
+        "thetaOffset": 45.0000000000023,
+        "targetOffset": [
+          0,
+          0,
+          0.8
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "fovy": 45,
+        "near": 0.01,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {
+        "meshUpAxis": "z_up",
+        "transforms": {
+          "showLabel": false,
+          "axisScale": 0.2
+        }
+      },
+      "transforms": {},
+      "topics": {
+        "/sensor/lidar/ouster_rear/points": {
+          "visible": true,
+          "colorField": "intensity",
+          "colorMode": "colormap",
+          "colorMap": "turbo",
+          "stixelsEnabled": false
+        },
+        "/sensor/lidar/ouster_front/points": {
+          "visible": true,
+          "colorField": "intensity",
+          "colorMode": "colormap",
+          "colorMap": "turbo",
+          "stixelsEnabled": false
+        },
+        "/robot_description": {
+          "visible": false
+        },
+        "/scene/markers": {
+          "visible": true
+        },
+        "/robot/markers": {
+          "visible": true
+        }
+      },
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": {},
+      "title": "xArm6 workcell",
+      "followTf": "world"
+    },
+    "RawMessagesVirtual!os6rgs": {
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "topicPath": "/motion/status",
+      "title": "Motion status"
+    },
+    "Publish!ready": {
+      "title": "Ready",
+      "topicName": "/motion/command",
+      "datatype": "std_msgs/msg/String",
+      "buttonText": "Ready",
+      "buttonTooltip": "MoveIt named pose: ready",
+      "buttonColor": "#2e7d32",
+      "advancedView": false,
+      "value": "{\"data\": \"ready\"}"
+    },
+    "Publish!sweep": {
+      "title": "Sweep",
+      "topicName": "/motion/command",
+      "datatype": "std_msgs/msg/String",
+      "buttonText": "Sweep",
+      "buttonTooltip": "MoveIt named pose: sweep",
+      "buttonColor": "#1565c0",
+      "advancedView": false,
+      "value": "{\"data\": \"sweep\"}"
+    },
+    "Publish!home": {
+      "title": "Home",
+      "topicName": "/motion/command",
+      "datatype": "std_msgs/msg/String",
+      "buttonText": "Home",
+      "buttonTooltip": "MoveIt named pose: home",
+      "buttonColor": "#5e35b1",
+      "advancedView": false,
+      "value": "{\"data\": \"home\"}"
+    },
+    "Publish!stop": {
+      "title": "Stop",
+      "topicName": "/motion/command",
+      "datatype": "std_msgs/msg/String",
+      "buttonText": "Stop",
+      "buttonTooltip": "Cancel the active motion goal",
+      "buttonColor": "#c62828",
+      "advancedView": false,
+      "value": "{\"data\": \"stop\"}"
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": {
+    "speed": 1
+  },
+  "layout": {
+    "first": "3D!18i6zy7",
+    "second": {
+      "first": {
+        "first": "Publish!ready",
+        "second": {
+          "first": "Publish!sweep",
+          "second": {
+            "first": "Publish!home",
+            "second": "Publish!stop",
+            "direction": "row"
+          },
+          "direction": "column"
+        },
+        "direction": "column",
+        "splitPercentage": 33
+      },
+      "second": "RawMessagesVirtual!os6rgs",
+      "direction": "column",
+      "splitPercentage": 60
+    },
+    "direction": "row",
+    "splitPercentage": 75
+  }
+}
