@@ -61,6 +61,7 @@ def launch_setup(context):
     cameras = sim and flag("cameras")
     weld = sim and gripper and flag("weld_grasps")
     wrist_camera = cameras and robot == "xarm6"
+    wrist_imu = wrist_camera and flag("wrist_imu")
     anti_aliasing = LaunchConfiguration("camera_anti_aliasing").perform(context)
     config_dir = Path(get_package_share_directory("arm_moveit_config")) / "config"
     model_config = config_dir / "xarm6" if robot == "xarm6" else config_dir
@@ -77,7 +78,8 @@ def launch_setup(context):
         description_mappings.update({
             "gripper": str(gripper).lower(), "wrist_camera": str(wrist_camera).lower(),
             "camera_hz": LaunchConfiguration("wrist_camera_hz").perform(context),
-            "camera_anti_aliasing": anti_aliasing})
+            "camera_anti_aliasing": anti_aliasing, "wrist_imu": str(wrist_imu).lower(),
+            "imu_noise": LaunchConfiguration("imu_noise").perform(context)})
     semantic = ((model_config / "arm.srdf.xacro", {"gripper": str(gripper).lower()}) if robot == "xarm6"
                 else (model_config / "arm.srdf", {}))
     config = (
@@ -266,6 +268,10 @@ def launch_setup(context):
         ])
         cameras_on = [camera for camera, enabled in [(WRIST, wrist_camera), (OVERHEAD, overhead_camera)] if enabled]
         bridges = [entry for camera in cameras_on for entry in camera_bridges(camera["name"])]
+        if wrist_imu:
+            bridges.append({"gz_topic_name": "/camera/wrist/imu", "ros_topic_name": "/camera/wrist/imu",
+                            "ros_type_name": "sensor_msgs/msg/Imu", "gz_type_name": "gz.msgs.IMU",
+                            "direction": "GZ_TO_ROS", "lazy": True})
         # RealSense depth (stereo noise, 1 mm units, 16UC1) from Gazebo's ideal depth.
         actions.extend(Node(package="arm_bringup", executable="realsense_depth", name="realsense_depth",
                             namespace=f"/camera/{camera['name']}", output="screen",
@@ -313,6 +319,10 @@ def generate_launch_description():
         DeclareLaunchArgument("camera_anti_aliasing", default_value="0",
                               description="MSAA samples for color images (Gazebo's default is 4). Under "
                                           "software rendering 4x MSAA multiplies each image's cost."),
+        DeclareLaunchArgument("wrist_imu", default_value="false", choices=["true", "false"],
+                              description="Simulate the D435i's IMU on /camera/wrist/imu (200 Hz)."),
+        DeclareLaunchArgument("imu_noise", default_value="true", choices=["true", "false"],
+                              description="Apply the IMU's noise and turn-on bias (false for validation)."),
         DeclareLaunchArgument("world", default_value="workcell", choices=["workcell", "obstacle_course", "empty"],
                               description="SDF scene used by both Gazebo and MoveIt's collision world."),
         DeclareLaunchArgument("robot", default_value="xarm6", choices=["xarm6", "demo"],

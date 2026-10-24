@@ -6,6 +6,7 @@
 
   Gazebo topics  /camera/<name>/color/{image,camera_info}
                  /camera/<name>/depth/{image,camera_info,image/points}
+                 /camera/<name>/imu   (D435i, with wrist_imu)
   frame_id       the optical frame of each imager (z forward, x right, y down)
 
   Separate sensors rather than one rgbd_camera keep each imager's field of
@@ -58,6 +59,60 @@
     <xacro:gz_camera name="${name}" stream="depth" type="depth_camera" link="${depth_link}"
         optical_frame="${depth_optical}" width="640" height="360" hfov="1.5184"
         update_rate="${update_rate}" near="0.17" far="10.0" noise="0"/>
+  </xacro:macro>
+
+  <!-- The D435i's BMI055 IMU, at realsense-ros's frame (_d435i_imu_modules.urdf.xacro,
+       relative to camera_link) and as its unified imu topic at the gyro's
+       200 Hz. Noise follows the BMI055 datasheet (gyro 0.014 deg/s/sqrt(Hz),
+       accel 150 ug/sqrt(Hz)); each run draws a turn-on bias with the
+       datasheet's typical offsets (1 deg/s, 70 mg) as one sigma, as for an
+       uncalibrated unit. The device reports no orientation.
+
+       Bullet Featherstone reports no link motion to Gazebo's Imu system, so
+       arm_bringup::PoseImu takes its place and measures the motion from the
+       sensor's pose (see pose_imu.cpp). It loads with the robot, so its
+       per-step cost is paid only with the IMU. -->
+  <xacro:macro name="d435i_imu" params="name frame_prefix camera_link update_rate:=200.0 noise:=true">
+    <link name="${frame_prefix}_imu_frame"/>
+    <joint name="${frame_prefix}_imu_joint" type="fixed">
+      <parent link="${camera_link}"/><child link="${frame_prefix}_imu_frame"/>
+      <origin xyz="-0.01174 -0.00552 0.0051" rpy="0 0 0"/>
+    </joint>
+    <link name="${frame_prefix}_imu_optical_frame"/>
+    <joint name="${frame_prefix}_imu_optical_joint" type="fixed">
+      <parent link="${frame_prefix}_imu_frame"/><child link="${frame_prefix}_imu_optical_frame"/>
+      <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+    </joint>
+    <xacro:macro name="imu_axis_noise" params="stddev bias">
+      <noise type="gaussian"><mean>0</mean><stddev>${stddev if str(noise).lower() == 'true' else 0}</stddev>
+        <bias_mean>0</bias_mean><bias_stddev>${bias if str(noise).lower() == 'true' else 0}</bias_stddev></noise>
+    </xacro:macro>
+    <gazebo reference="${frame_prefix}_imu_optical_frame">
+      <sensor name="${name}_imu" type="imu">
+        <always_on>true</always_on>
+        <update_rate>${update_rate}</update_rate>
+        <topic>/camera/${name}/imu</topic>
+        <gz_frame_id>${frame_prefix}_imu_optical_frame</gz_frame_id>
+        <imu>
+          <enable_orientation>false</enable_orientation>
+          <!-- 0.014 deg/s/sqrt(Hz) over the 100 Hz half-rate band; 1 deg/s bias. -->
+          <angular_velocity>
+            <x><xacro:imu_axis_noise stddev="0.00244" bias="0.01745"/></x>
+            <y><xacro:imu_axis_noise stddev="0.00244" bias="0.01745"/></y>
+            <z><xacro:imu_axis_noise stddev="0.00244" bias="0.01745"/></z>
+          </angular_velocity>
+          <!-- 150 ug/sqrt(Hz) over a 31 Hz band (62.5 Hz accel); 70 mg bias. -->
+          <linear_acceleration>
+            <x><xacro:imu_axis_noise stddev="0.0082" bias="0.687"/></x>
+            <y><xacro:imu_axis_noise stddev="0.0082" bias="0.687"/></y>
+            <z><xacro:imu_axis_noise stddev="0.0082" bias="0.687"/></z>
+          </linear_acceleration>
+        </imu>
+      </sensor>
+    </gazebo>
+    <gazebo>
+      <plugin filename="arm_pose_imu" name="arm_bringup::PoseImu"/>
+    </gazebo>
   </xacro:macro>
 
   <!-- Intel RealSense D455: color 640x400 at 90 x 65 deg; depth 640x360 at

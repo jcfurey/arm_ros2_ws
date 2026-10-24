@@ -10,6 +10,8 @@
   <xacro:arg name="wrist_camera" default="true"/>
   <xacro:arg name="camera_hz" default="15.0"/>
   <xacro:arg name="camera_anti_aliasing" default="0"/>
+  <xacro:arg name="wrist_imu" default="false"/>
+  <xacro:arg name="imu_noise" default="true"/>
   <xacro:property name="hardware" value="$(arg hardware)"/>
   <xacro:property name="control_plugin" value="${'gz_ros2_control/GazeboSimSystem' if hardware == 'gazebo' else 'mock_components/GenericSystem'}"/>
   <!-- Keep the pinned manufacturer geometry and control macros, with local materials. -->
@@ -71,6 +73,9 @@
     <xacro:if value="${hardware == 'gazebo'}">
       <xacro:d435i_camera name="wrist" color_link="camera_color_frame" color_optical="camera_color_optical_frame"
           depth_link="camera_depth_frame" depth_optical="camera_depth_optical_frame" update_rate="$(arg camera_hz)"/>
+      <xacro:if value="$(arg wrist_imu)">
+        <xacro:d435i_imu name="wrist" frame_prefix="camera" camera_link="camera_link" noise="$(arg imu_noise)"/>
+      </xacro:if>
     </xacro:if>
   </xacro:if>
   <xacro:unless value="$(arg wrist_camera)">

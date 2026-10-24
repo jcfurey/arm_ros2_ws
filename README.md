@@ -73,12 +73,23 @@ camera only while something subscribes to it, so unwatched cameras cost no
 simulation time. `make camera-check` compares each depth stream with its
 ideal depth and the error model.
 
-The D435i's IMU is not simulated. Under Bullet Featherstone, which the
-gripper needs, Gazebo's IMU sensor receives no link rotation rate or
-acceleration: in a test its gyro read only noise while the wrist turned at
-0.4 rad/s, and its accelerometer saw only gravity's direction. (Under DART
-it tracked the motion.) It would publish data that a visual-inertial
-pipeline would trust and misread.
+The wrist D435i's IMU is off by default; `WRIST_IMU=true make up` (or
+`wrist_imu:=true`) adds `/camera/wrist/imu`, a `sensor_msgs/Imu` at 200 Hz
+in `camera_imu_optical_frame` like realsense-ros's unified IMU topic, without
+orientation. It carries the BMI055's noise and a turn-on bias drawn per run,
+as an uncalibrated unit would; `IMU_NOISE=false` removes both. Bullet
+Featherstone, which the gripper needs, gives Gazebo's own IMU sensor no link
+rotation rate or acceleration (its gyro read only noise while the wrist
+turned at 0.4 rad/s), so `arm_bringup::PoseImu` takes its place and measures
+the sensor's motion from its pose each step. `make imu-check` sweeps the arm
+and compares the IMU with the motion in TF: with noise, after the bias
+estimated at rest, the gyro was within 0.001-0.003 rad/s RMS of the 0.125
+rad/s reference, and the wrist's own acceleration (0.03 m/s^2 RMS beside
+gravity) matched with correlation 0.95-0.97. The simulated arm's velocity
+changes in 10 ms steps, since gz_ros2_control holds each command for a
+controller period, so the IMU averages acceleration over 10 ms; a real arm's
+servos move more smoothly. The IMU costs 1-2% of a core in Gazebo, and the
+bridge another 3% while something subscribes.
 
 Use `/robot/markers` for the robot visuals; leave the additional
 `/robot_description` display disabled to avoid overlapping copies.
@@ -114,6 +125,7 @@ make obstacles  # use the obstacle-course world
 make perception # also integrate both point clouds into MoveIt's occupancy map
 ENABLE_CAMERAS=false make up  # no wrist or overhead camera
 ENABLE_GRIPPER=false make up  # bare xArm6 flange, link_eef as the tip
+WRIST_IMU=true make up        # also the wrist D435i's IMU on /camera/wrist/imu
 ```
 
 These commands update the same Compose service, replacing the previous mode.
@@ -197,6 +209,7 @@ make bridge-check
 make registration-check
 make rates-check   # cloud rates, scan completeness, real-time factor
 make pick-check    # picks both parts in the running workcell (moves them)
+make imu-check     # with WRIST_IMU=true: wrist IMU against the arm's motion (moves the arm)
 ```
 
 The three `smoke` commands start separate, temporary headless stacks with their own ROS

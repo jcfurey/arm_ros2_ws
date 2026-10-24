@@ -11,6 +11,7 @@ launch_log=$(mktemp /tmp/arm-smoke.XXXXXX)
 ros2 launch arm_bringup demo.launch.py robot:="$robot" mode:="$mode" world:="$world" \
     ousters:="${ENABLE_OUSTERS:-true}" perception:="${ENABLE_PERCEPTION:-false}" \
     cameras:="${ENABLE_CAMERAS:-true}" gripper:="${ENABLE_GRIPPER:-true}" \
+    wrist_imu:="${WRIST_IMU:-false}" imu_noise:="${IMU_NOISE:-true}" \
     lidar_hz:="${LIDAR_HZ:-10.0}" bridge:=false gui:=false rviz:=false > "$launch_log" 2>&1 &
 launch_pid=$!
 cleanup() {

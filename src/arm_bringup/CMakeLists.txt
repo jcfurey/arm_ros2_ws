@@ -9,16 +9,24 @@ find_package(gz_sim_vendor REQUIRED)
 find_package(gz_transport_vendor REQUIRED)
 find_package(gz_msgs_vendor REQUIRED)
 find_package(gz_plugin_vendor REQUIRED)
+find_package(gz_sensors_vendor REQUIRED)
 find_package(gz-sim REQUIRED)
 find_package(gz-transport REQUIRED)
 find_package(gz-msgs REQUIRED)
 find_package(gz-plugin REQUIRED COMPONENTS register)
+find_package(gz-sensors REQUIRED COMPONENTS imu)
 
 # World system: real-time pacing that repays late wake-ups (see source).
 add_library(arm_realtime_pacer SHARED src/realtime_pacer.cpp)
 target_compile_features(arm_realtime_pacer PRIVATE cxx_std_17)
 target_link_libraries(arm_realtime_pacer gz-sim::gz-sim gz-plugin::register)
 install(TARGETS arm_realtime_pacer LIBRARY DESTINATION lib)
+
+# Model system: IMUs measured from the sensor's pose, for Bullet Featherstone (see source).
+add_library(arm_pose_imu SHARED src/pose_imu.cpp)
+target_compile_features(arm_pose_imu PRIVATE cxx_std_17)
+target_link_libraries(arm_pose_imu gz-sim::gz-sim gz-plugin::register gz-sensors::gz-sensors-imu)
+install(TARGETS arm_pose_imu LIBRARY DESTINATION lib)
 
 # World system: welds a grasped part to the hand on request (see source).
 add_library(arm_grasp_weld SHARED src/grasp_weld.cpp)

@@ -26,6 +26,7 @@ ros2 launch arm_bringup demo.launch.py \
     world:="${TEST_WORLD:-workcell}" gui:="${GUI:-false}" rviz:="${RVIZ:-false}" \
     ousters:="${ENABLE_OUSTERS:-true}" perception:="${ENABLE_PERCEPTION:-false}" \
     cameras:="${ENABLE_CAMERAS:-true}" gripper:="${ENABLE_GRIPPER:-true}" \
+    wrist_imu:="${WRIST_IMU:-false}" imu_noise:="${IMU_NOISE:-true}" \
     lidar_hz:="${LIDAR_HZ:-10.0}" "$@" &
 children+=("$!")
 wait -n "${children[@]}"

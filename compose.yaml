@@ -18,6 +18,8 @@ services:
       ENABLE_PERCEPTION: ${ENABLE_PERCEPTION:-false}
       ENABLE_CAMERAS: ${ENABLE_CAMERAS:-true}
       ENABLE_GRIPPER: ${ENABLE_GRIPPER:-true}
+      WRIST_IMU: ${WRIST_IMU:-false}
+      IMU_NOISE: ${IMU_NOISE:-true}
       LIDAR_HZ: ${LIDAR_HZ:-10.0}
       SIM_MODE: ${SIM_MODE:-gazebo}
       GUI: ${GUI:-false}
