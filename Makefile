@@ -1,4 +1,4 @@
-.PHONY: image up down shell build mock headless demo obstacles perception smoke smoke-mock smoke-obstacles bridge-check registration-check rates-check pick-check logs
+.PHONY: image up down shell build mock headless demo obstacles perception smoke smoke-mock smoke-obstacles bridge-check registration-check rates-check pick-check camera-check logs
 
 image:
 	docker compose build
@@ -34,5 +34,7 @@ rates-check:
 	docker compose exec --user ros dev /usr/local/bin/ros-shell.sh python3 scripts/check_rates.py --min-hz "$${LIDAR_HZ:-10.0}"
 pick-check:
 	docker compose exec --user ros dev /usr/local/bin/ros-shell.sh bash -c 'python3 scripts/check_pick.py --part pick_cube && python3 scripts/check_pick.py --part pick_cylinder'
+camera-check:
+	docker compose exec --user ros dev /usr/local/bin/ros-shell.sh bash -c 'python3 scripts/check_realsense.py --camera wrist && python3 scripts/check_realsense.py --camera overhead'
 logs:
 	docker compose logs -f dev

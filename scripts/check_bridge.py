@@ -30,9 +30,10 @@ def main():
                 raise
             time.sleep(0.5)
     subscriptions, received = {}, set()
+    # The robot description references the simplified copies of UFACTORY's meshes.
     assets = {
-        1: "package://xarm_description/meshes/xarm6/visual/link_base.stl",
-        2: "file://" + get_package_share_directory("xarm_description") + "/meshes/xarm6/visual/link_base.stl",
+        1: "package://arm_description/meshes/sim/xarm6/visual/link_base.stl",
+        2: "file://" + get_package_share_directory("arm_description") + "/meshes/sim/xarm6/visual/link_base.stl",
     }
     assets_received = set()
     command_sent = motion_started = False

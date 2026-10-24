@@ -1,0 +1,6 @@
+These meshes are reduced copies of UFACTORY's xarm_description meshes
+(https://github.com/xArm-Developer/xarm_ros2), Copyright (c) 2018, UFACTORY
+Inc., redistributed under the BSD-3-Clause license in
+third_party/ufactory/LICENSE. scripts/simplify_meshes.py regenerates them
+from the xarm_ros2 submodule; each stays within 1 mm of the original surface
+(0.5 mm for the gripper).

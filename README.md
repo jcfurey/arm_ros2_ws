@@ -52,12 +52,33 @@ Y-up rotates each link mesh independently. Enable these topics:
   frames that follow the movable parts in Gazebo.
 
 The cameras publish realsense-ros style topics under `/camera/wrist` and
-`/camera/overhead`: `color/image_raw`, `color/camera_info`,
-`depth/image_rect_raw` (32-bit float metres), `depth/camera_info`, and
-`depth/points`. Each stream has its own optical frame. Gazebo renders a
+`/camera/overhead`:
+
+- `color/image_raw` and `color/camera_info`.
+- `depth/image_rect_raw`: 16-bit millimetres with 0 for no depth, as
+  realsense-ros publishes, including the D4xx stereo error. Its RMS grows as
+  z^2 x 0.08 px / (focal length x baseline): about 4.7 mm at 1 m on the wrist
+  D435i (50 mm baseline) and 2.5 mm on the overhead D455 (95 mm).
+  `arm_bringup/realsense_depth` adds it to Gazebo's ideal depth.
+- `depth/image_meters`: that ideal depth, as 32-bit float metres, for ground
+  truth. `depth/points` is computed from it.
+- `depth/camera_info`.
+
+Each imager has its own field of view and optical frame, placed as in
+realsense-ros's models: the D435i's color imager is 15 mm from its depth
+imager, the D455's 59 mm. Both cameras run at 15 Hz, a native mode of each,
+and render together. The wrist D435i sits on UFACTORY's camera stand with
+its frame names; the overhead D455 is 2.1 m above the bench. Gazebo renders a
 camera only while something subscribes to it, so unwatched cameras cost no
-simulation time. The wrist D435i runs at 15 Hz with UFACTORY's camera stand
-and frame names; the overhead D455 runs at 10 Hz from 2.1 m above the bench.
+simulation time. `make camera-check` compares each depth stream with its
+ideal depth and the error model.
+
+The D435i's IMU is not simulated. Under Bullet Featherstone, which the
+gripper needs, Gazebo's IMU sensor receives no link rotation rate or
+acceleration: in a test its gyro read only noise while the wrist turned at
+0.4 rad/s, and its accelerometer saw only gravity's direction. (Under DART
+it tracked the motion.) It would publish data that a visual-inertial
+pipeline would trust and misread.
 
 Use `/robot/markers` for the robot visuals; leave the additional
 `/robot_description` display disabled to avoid overlapping copies.
@@ -263,6 +284,11 @@ or `gz_ros2_control/GazeboSimSystem`. `xarm_gripper.xacro` adds the gripper
 with box collisions fitted to the finger pads and knuckles, and keeps its
 linkage as URDF mimic joints, which Bullet Featherstone enforces as
 constraints. `cameras.xacro` defines the D435i and D455 sensors.
+The robot's meshes are copies of UFACTORY's in `arm_description/meshes/sim`,
+reduced to within 1 mm of the originals' surfaces: every camera image and
+every MoveIt collision check processes them, and the originals carry ~130k
+triangles. `scripts/simplify_meshes.py` regenerates them (it needs numpy,
+scipy, and fast-simplification) and reports each mesh's deviation.
 The local MoveIt configuration includes the
 manufacturer's arm self-collision exclusions and the `home` and `ready` states.
 Velocity and acceleration limits in our MoveIt configuration are conservative
@@ -365,25 +391,49 @@ measured to matter:
   reliable subscriber receives every scan. Subscribe reliable in your own
   nodes.
 - **Cameras:** separate color and depth sensors, bridged lazily and rendered
-  only while subscribed.
+  only while subscribed. Docker on a Mac has no GPU, so Mesa's software
+  rasterizer (llvmpipe) draws every image, and the settings are chosen for
+  it: no MSAA on color images (`camera_anti_aliasing:=4` restores Gazebo's
+  default), no shadow-casting lights, both cameras at 15 Hz so their images
+  render together rather than interleaving, and robot meshes reduced to
+  within 1 mm (`arm_description/meshes/sim`). Measured one at a time, MSAA
+  and shadows were the largest costs.
 - **No per-step extras:** no pose-publisher or altimeter systems, and the
   workcell UI asks MoveIt for the hand pose instead of decoding `/tf` and
   `/clock`.
 
-Measured on this M1 Pro with Docker Desktop (8 vCPUs, 8 GiB VM memory),
-the default camera resolutions/rates, and software OpenGL rendering:
+Before the camera changes below, measured on this M1 Pro with Docker Desktop
+(8 vCPUs, 8 GiB VM memory) and software OpenGL rendering:
 
 | Configuration                        | Real-time factor | Ouster rate, sim / wall |
 | ------------------------------------ | ---------------- | ----------------------- |
 | Default (cameras present, unwatched) | 1.00             | 10.0 / 10.0 Hz          |
-| Both color images subscribed         | ~0.25            | ~9.5-9.7 / 2.3-2.4 Hz  |
-| All four color/depth images subscribed | ~0.23-0.27     | ~9.7-10.1 / 2.2-2.8 Hz |
+| Both color images subscribed         | ~0.25            | ~9.5-9.7 / 2.3-2.4 Hz   |
+| All four color/depth images subscribed | ~0.23-0.27     | ~9.7-10.1 / 2.2-2.8 Hz  |
 
-The camera runs used 10-20 second measurement windows after a 5 second
-warmup; the two rendering cases vary with scheduling and load. Camera
-rendering is the limiting workload on this host. The wrist and overhead
-cameras continue at about 15 and 10 Hz in simulation time, respectively,
-while their wall-clock rates fall with the real-time factor.
+Camera rendering was the limiting workload. Measured one change at a time
+on a 4-vCPU x86-64 VM, whose numbers matched the M1's above (0.28 with all
+four images subscribed), each change's effect with all four images:
+
+| Change (cumulative)                                   | Real-time factor |
+| ----------------------------------------------------- | ---------------- |
+| Before                                                | 0.28             |
+| No shadow-casting light                               | 0.40             |
+| No MSAA on color images                               | 0.67             |
+| Overhead camera at 15 Hz, in step with the wrist      | 0.83             |
+| Final: also RealSense depth and reduced meshes        | 0.76-0.78        |
+
+Back-to-back runs of one configuration differ by up to 0.04. In the final
+configuration the ideal depth (`depth/image_meters`) measured 0.79-0.83, so
+the realistic depth costs a few points. The 1 mm meshes' gain is within that
+spread here (an earlier 31k-triangle reduction with ~1 cm errors raised one
+run from 0.67 to 0.79); they also cut MoveIt's collision-checking work. With
+nothing watched
+the factor is 1.00, and one image stream alone costs 1-3%. Rendering alone
+(Gazebo-level subscribers, no ROS) measured 0.84, so moving the images
+through ROS costs the rest. These numbers need re-measuring on the M1. The
+images keep their 15 Hz in simulation time; their wall-clock rate follows
+the real-time factor.
 
 `check_rates.py --cameras` subscribes to actual images to exercise rendering.
 Gazebo can publish `CameraInfo` without producing image pixels, so measuring

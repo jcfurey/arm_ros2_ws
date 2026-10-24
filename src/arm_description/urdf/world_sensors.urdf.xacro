@@ -10,7 +10,8 @@
   <xacro:arg name="overhead_camera" default="false"/>
   <xacro:arg name="overhead_xyz" default="0 0 2.1"/>
   <xacro:arg name="overhead_rpy" default="0 1.5708 1.5708"/>
-  <xacro:arg name="overhead_hz" default="10.0"/>
+  <xacro:arg name="overhead_hz" default="15.0"/>
+  <xacro:arg name="camera_anti_aliasing" default="0"/>
   <link name="sensor_rig">
     <inertial><mass value="0.1"/><inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/></inertial>
   </link>

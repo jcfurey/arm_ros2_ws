@@ -18,14 +18,23 @@ import xacro
 import yaml
 
 
+# Packages whose meshes the robot description references.
+MESH_PACKAGES = ["arm_description", "xarm_description"]
+# realsense_depth parameters per camera: stereo baseline and the depth imager's
+# field of view and range at 640x360 (see cameras.xacro).
+WRIST = {"name": "wrist", "baseline": 0.050, "horizontal_fov": 1.5184, "min_depth": 0.17, "max_depth": 10.0}
+OVERHEAD = {"name": "overhead", "baseline": 0.095, "horizontal_fov": 1.5184, "min_depth": 0.4, "max_depth": 6.0}
+
+
 def camera_bridges(name):
     """Lazy ros_gz_bridge entries for one RealSense-style camera, named like realsense-ros."""
     gz, ros = f"/camera/{name}", f"/camera/{name}"
     topics = [
         ("color/image", "color/image_raw", "sensor_msgs/msg/Image", "gz.msgs.Image"),
         ("color/camera_info", "color/camera_info", "sensor_msgs/msg/CameraInfo", "gz.msgs.CameraInfo"),
-        # 32FC1 metres rather than the driver's 16UC1 millimetres.
-        ("depth/image", "depth/image_rect_raw", "sensor_msgs/msg/Image", "gz.msgs.Image"),
+        # Ideal 32FC1 metres. realsense_depth publishes the driver's noisy
+        # 16UC1 millimetres on depth/image_rect_raw from Gazebo's topic.
+        ("depth/image", "depth/image_meters", "sensor_msgs/msg/Image", "gz.msgs.Image"),
         ("depth/camera_info", "depth/camera_info", "sensor_msgs/msg/CameraInfo", "gz.msgs.CameraInfo"),
         ("depth/image/points", "depth/points", "sensor_msgs/msg/PointCloud2", "gz.msgs.PointCloudPacked"),
     ]
@@ -52,6 +61,7 @@ def launch_setup(context):
     cameras = sim and flag("cameras")
     weld = sim and gripper and flag("weld_grasps")
     wrist_camera = cameras and robot == "xarm6"
+    anti_aliasing = LaunchConfiguration("camera_anti_aliasing").perform(context)
     config_dir = Path(get_package_share_directory("arm_moveit_config")) / "config"
     model_config = config_dir / "xarm6" if robot == "xarm6" else config_dir
     description_dir = Path(get_package_share_directory("arm_description")) / "urdf"
@@ -66,7 +76,8 @@ def launch_setup(context):
     if robot == "xarm6":
         description_mappings.update({
             "gripper": str(gripper).lower(), "wrist_camera": str(wrist_camera).lower(),
-            "camera_hz": LaunchConfiguration("wrist_camera_hz").perform(context)})
+            "camera_hz": LaunchConfiguration("wrist_camera_hz").perform(context),
+            "camera_anti_aliasing": anti_aliasing})
     semantic = ((model_config / "arm.srdf.xacro", {"gripper": str(gripper).lower()}) if robot == "xarm6"
                 else (model_config / "arm.srdf", {}))
     config = (
@@ -91,10 +102,11 @@ def launch_setup(context):
         manager["controller_names"] = [name for name in manager["controller_names"] if name != "gripper_controller"]
         manager.pop("gripper_controller", None)
     physics_description = dict(config.robot_description)
-    mesh_package = get_package_share_directory("xarm_description")
     # Gazebo gets local file URIs; ROS visualizers get portable package URIs.
-    config.robot_description = {"robot_description": config.robot_description["robot_description"].replace(
-        "file://" + mesh_package + "/", "package://xarm_description/")}
+    portable = config.robot_description["robot_description"]
+    for package in MESH_PACKAGES:
+        portable = portable.replace("file://" + get_package_share_directory(package) + "/", f"package://{package}/")
+    config.robot_description = {"robot_description": portable}
     common = {"use_sim_time": sim}
     state_publisher = Node(
         package="robot_state_publisher", executable="robot_state_publisher",
@@ -121,6 +133,10 @@ def launch_setup(context):
         arguments=["joint_state_broadcaster", "arm_controller", *(["gripper_controller"] if gripper else []),
                    "--controller-manager", "/controller_manager",
                    "--controller-manager-timeout", "120",
+                   # On a cold host the cameras' first shader compile can stall
+                   # Gazebo for seconds; a timed-out switch call that is retried
+                   # finds its controllers already active and fails the launch.
+                   "--switch-timeout", "60", "--service-call-timeout", "60",
                    "--param-file", controllers],
         output="screen",
     )
@@ -141,15 +157,14 @@ def launch_setup(context):
         RegisterEventHandler(OnProcessExit(target_action=scene_loader, on_exit=after_scene)),
     ]
     if flag("bridge"):
-        mesh_path = Path(get_package_share_directory("xarm_description")) / "meshes"
+        meshes = r"/meshes/.*\.(stl|dae|obj|png|jpg|mtl)$"
         actions.append(Node(
             package="foxglove_bridge", executable="foxglove_bridge", name="foxglove_bridge",
             parameters=[common, {
                 "address": "0.0.0.0", "port": 8765,
-                "asset_uri_allowlist": [
-                    r"^package://xarm_description/meshes/.*\.(stl|dae|obj|png|jpg|mtl)$",
-                    "^file://" + re.escape(str(mesh_path)) + r"/.*\.(stl|dae|obj|png|jpg|mtl)$",
-                ],
+                "asset_uri_allowlist": [pattern for package in MESH_PACKAGES for pattern in [
+                    f"^package://{package}{meshes}",
+                    "^file://" + re.escape(get_package_share_directory(package)) + meshes]],
             }], output="screen",
         ))
     sensor_description = ""
@@ -158,7 +173,8 @@ def launch_setup(context):
         mappings = {"ousters": str(ousters).lower(), "overhead_camera": str(overhead_camera).lower(),
                     "metadata_path": str(sensor_share / "config/metadata/os1_64_rev7.json"),
                     "lidar_hz": LaunchConfiguration("lidar_hz").perform(context),
-                    "overhead_hz": LaunchConfiguration("overhead_camera_hz").perform(context)}
+                    "overhead_hz": LaunchConfiguration("overhead_camera_hz").perform(context),
+                    "camera_anti_aliasing": anti_aliasing}
         for frame, prefix in [("ouster_front_mount", "front"), ("ouster_rear_mount", "rear"),
                               ("overhead_camera_mount", "overhead")]:
             if frame in scene.frames:
@@ -245,8 +261,14 @@ def launch_setup(context):
             RegisterEventHandler(OnProcessExit(target_action=spawn_robot, on_exit=after_spawn)),
             spawn_robot,
         ])
-        bridges = [entry for name, enabled in [("wrist", wrist_camera), ("overhead", overhead_camera)]
-                   if enabled for entry in camera_bridges(name)]
+        cameras_on = [camera for camera, enabled in [(WRIST, wrist_camera), (OVERHEAD, overhead_camera)] if enabled]
+        bridges = [entry for camera in cameras_on for entry in camera_bridges(camera["name"])]
+        # RealSense depth (stereo noise, 1 mm units, 16UC1) from Gazebo's ideal depth.
+        actions.extend(Node(package="arm_bringup", executable="realsense_depth", name="realsense_depth",
+                            namespace=f"/camera/{camera['name']}", output="screen",
+                            parameters=[{"gz_topic": f"/camera/{camera['name']}/depth/image",
+                                         **{key: value for key, value in camera.items() if key != "name"}}])
+                       for camera in cameras_on)
         if bridges:
             bridge_config = tempfile.NamedTemporaryFile("w", prefix="arm_gz_bridge_", suffix=".yaml", delete=False)
             with bridge_config:
@@ -280,8 +302,14 @@ def generate_launch_description():
                                           "it, instead of holding it by contact friction alone."),
         DeclareLaunchArgument("cameras", default_value="true", choices=["true", "false"],
                               description="Add the wrist D435i and overhead D455 RGB-D cameras (Gazebo mode)."),
-        DeclareLaunchArgument("wrist_camera_hz", default_value="15.0", description="Wrist camera frame rate."),
-        DeclareLaunchArgument("overhead_camera_hz", default_value="10.0", description="Overhead camera frame rate."),
+        DeclareLaunchArgument("wrist_camera_hz", default_value="15.0",
+                              description="Wrist D435i frame rate (native modes: 6, 15, 30, 60)."),
+        DeclareLaunchArgument("overhead_camera_hz", default_value="15.0",
+                              description="Overhead D455 frame rate (native modes: 5, 15, 30, 60). Equal to "
+                                          "the wrist rate, both cameras render together."),
+        DeclareLaunchArgument("camera_anti_aliasing", default_value="0",
+                              description="MSAA samples for color images (Gazebo's default is 4). Under "
+                                          "software rendering 4x MSAA multiplies each image's cost."),
         DeclareLaunchArgument("world", default_value="workcell", choices=["workcell", "obstacle_course", "empty"],
                               description="SDF scene used by both Gazebo and MoveIt's collision world."),
         DeclareLaunchArgument("robot", default_value="xarm6", choices=["xarm6", "demo"],

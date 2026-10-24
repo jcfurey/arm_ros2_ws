@@ -33,6 +33,14 @@ find_package(std_msgs REQUIRED)
 target_link_libraries(gz_relay rclcpp::rclcpp ${rosgraph_msgs_TARGETS} ${geometry_msgs_TARGETS} ${std_msgs_TARGETS}
   gz-transport::gz-transport gz-msgs::gz-msgs)
 install(TARGETS gz_relay DESTINATION lib/${PROJECT_NAME})
+
+# RealSense depth: stereo noise, 1 mm quantization, and 16UC1 like realsense-ros (see source).
+find_package(sensor_msgs REQUIRED)
+add_executable(realsense_depth src/realsense_depth.cpp)
+target_compile_features(realsense_depth PRIVATE cxx_std_17)
+target_compile_options(realsense_depth PRIVATE -O2)
+target_link_libraries(realsense_depth rclcpp::rclcpp ${sensor_msgs_TARGETS} gz-transport::gz-transport gz-msgs::gz-msgs)
+install(TARGETS realsense_depth DESTINATION lib/${PROJECT_NAME})
 ament_environment_hooks("${CMAKE_CURRENT_SOURCE_DIR}/env-hooks/${PROJECT_NAME}.dsv.in")
 ament_python_install_package(${PROJECT_NAME})
 install(DIRECTORY launch worlds DESTINATION share/${PROJECT_NAME}

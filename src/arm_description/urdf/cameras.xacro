@@ -1,20 +1,24 @@
 <?xml version="1.0"?>
 <!--
-  RealSense-style RGB-D cameras for gz-sim: a color camera and a depth camera
-  on their own frames and fields of view, as on the device (and as
-  realsense-ros publishes them without alignment).
+  RealSense cameras for gz-sim: a color camera and a depth camera on their own
+  frames and fields of view, as on the device (and as realsense-ros publishes
+  them without alignment).
 
   Gazebo topics  /camera/<name>/color/{image,camera_info}
-                 /camera/<name>/depth/{image,camera_info,points}
+                 /camera/<name>/depth/{image,camera_info,image/points}
   frame_id       the optical frame of each imager (z forward, x right, y down)
 
-  Separate sensors rather than one rgbd_camera: gz-sim's rgbd_camera renders
-  lit geometry black in its color image under Mesa's llvmpipe, which is what
-  renders in Docker on a Mac. Gazebo renders a sensor only while something
-  subscribes to it, and the launch bridges these topics lazily, so an
-  unwatched stream costs nothing.
+  Separate sensors rather than one rgbd_camera keep each imager's field of
+  view and position. Gazebo renders a sensor only while something subscribes
+  to it, and the launch bridges these topics lazily, so an unwatched stream
+  costs nothing. Under Docker on a Mac every image is drawn by Mesa's software
+  renderer, and 4x MSAA (Gazebo's default) multiplied each color image's cost:
+  anti-aliasing is off unless camera_anti_aliasing is set. The includer
+  declares that xacro argument.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="camera_anti_aliasing" value="$(arg camera_anti_aliasing)"/>
+
   <!-- link: x-forward body frame (REP 103), the direction gz-sim cameras look. -->
   <xacro:macro name="gz_camera" params="name stream type link optical_frame width height hfov
                                         update_rate near far noise">
@@ -29,7 +33,8 @@
         <camera>
           <horizontal_fov>${hfov}</horizontal_fov>
           <image><width>${width}</width><height>${height}</height>
-            <format>${'R8G8B8' if type == 'camera' else 'R_FLOAT32'}</format></image>
+            <format>${'R8G8B8' if type == 'camera' else 'R_FLOAT32'}</format>
+            <anti_aliasing>${camera_anti_aliasing if type == 'camera' else 0}</anti_aliasing></image>
           <clip><near>${near}</near><far>${far}</far></clip>
           <xacro:if value="${noise > 0}">
             <noise><type>gaussian</type><mean>0.0</mean><stddev>${noise}</stddev></noise>
@@ -42,7 +47,9 @@
   </xacro:macro>
 
   <!-- Intel RealSense D435i: color 640x360 at 69.4 x 42.5 deg; depth 640x360
-       at 87 x 56 deg, 0.17 m minimum depth at this resolution, 10 m range. -->
+       at 87 x 56 deg, 0.17 m minimum depth at this resolution, 10 m range.
+       15 fps is a native mode of both imagers. Depth noise is added downstream
+       (arm_bringup realsense_depth), since Gazebo's is range-independent. -->
   <xacro:macro name="d435i_camera" params="name color_link color_optical depth_link depth_optical
                                            update_rate:=15.0">
     <xacro:gz_camera name="${name}" stream="color" type="camera" link="${color_link}"
@@ -54,9 +61,10 @@
   </xacro:macro>
 
   <!-- Intel RealSense D455: color 640x400 at 90 x 65 deg; depth 640x360 at
-       87 x 56 deg, 0.4 m minimum depth, ~6 m useful range. -->
+       87 x 56 deg, 0.4 m minimum depth, ~6 m useful range. 15 fps is a native
+       mode of both imagers (10 is not). -->
   <xacro:macro name="d455_camera" params="name color_link color_optical depth_link depth_optical
-                                          update_rate:=10.0">
+                                          update_rate:=15.0">
     <xacro:gz_camera name="${name}" stream="color" type="camera" link="${color_link}"
         optical_frame="${color_optical}" width="640" height="400" hfov="1.5708"
         update_rate="${update_rate}" near="0.01" far="50" noise="0.007"/>
@@ -65,15 +73,17 @@
         update_rate="${update_rate}" near="0.4" far="6.0" noise="0"/>
   </xacro:macro>
 
-  <!-- A fixed D455 with realsense-ros frame names under <name>_camera_*.
-       Color and depth share the camera_link origin here. -->
-  <xacro:macro name="fixed_d455" params="name parent xyz rpy update_rate:=10.0">
+  <!-- A fixed D455 with realsense-ros frame names under <name>_camera_*. As in
+       realsense-ros (_d455.urdf.xacro), <name>_camera_link is the depth
+       (left infrared) imager; the color imager sits 59 mm toward the right
+       infrared imager and the case centre 47.5 mm. The optical centres are at
+       the front glass, so the case sits behind them; a sensor inside the case
+       would see its inner faces. -->
+  <xacro:macro name="fixed_d455" params="name parent xyz rpy update_rate:=15.0">
     <link name="${name}_camera_link">
       <inertial><mass value="0.39"/><inertia ixx="1e-4" ixy="0" ixz="0" iyy="1e-4" iyz="0" izz="1e-4"/></inertial>
       <visual>
-        <!-- The optical centres are at the front glass, so the body sits
-             behind them; a sensor inside the body would see its inner faces. -->
-        <origin xyz="-0.0155 0 0" rpy="0 0 0"/>
+        <origin xyz="-0.0155 -0.0475 0" rpy="0 0 0"/>
         <geometry><box size="0.029 0.124 0.026"/></geometry>
         <material name="camera_dark"><color rgba="0.12 0.13 0.15 1"/></material>
       </visual>
@@ -82,17 +92,22 @@
       <parent link="${parent}"/><child link="${name}_camera_link"/>
       <origin xyz="${xyz}" rpy="${rpy}"/>
     </joint>
-    <xacro:macro name="optical" params="stream">
+    <xacro:macro name="imager" params="stream y">
+      <link name="${name}_camera_${stream}_frame"/>
+      <joint name="${name}_camera_${stream}_joint" type="fixed">
+        <parent link="${name}_camera_link"/><child link="${name}_camera_${stream}_frame"/>
+        <origin xyz="0 ${y} 0" rpy="0 0 0"/>
+      </joint>
       <link name="${name}_camera_${stream}_optical_frame"/>
       <joint name="${name}_camera_${stream}_optical_joint" type="fixed">
-        <parent link="${name}_camera_link"/><child link="${name}_camera_${stream}_optical_frame"/>
+        <parent link="${name}_camera_${stream}_frame"/><child link="${name}_camera_${stream}_optical_frame"/>
         <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
       </joint>
     </xacro:macro>
-    <xacro:optical stream="color"/>
-    <xacro:optical stream="depth"/>
-    <xacro:d455_camera name="${name}" color_link="${name}_camera_link"
-        color_optical="${name}_camera_color_optical_frame" depth_link="${name}_camera_link"
+    <xacro:imager stream="depth" y="0"/>
+    <xacro:imager stream="color" y="-0.059"/>
+    <xacro:d455_camera name="${name}" color_link="${name}_camera_color_frame"
+        color_optical="${name}_camera_color_optical_frame" depth_link="${name}_camera_depth_frame"
         depth_optical="${name}_camera_depth_optical_frame" update_rate="${update_rate}"/>
   </xacro:macro>
 </robot>

@@ -15,12 +15,15 @@
          only while subscribed. -->
     <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors"><render_engine>ogre2</render_engine></plugin>
     <gravity>0 0 -9.81</gravity>
-    <scene><ambient>0.55 0.55 0.55 1</ambient><background>0.18 0.22 0.28 1</background><shadows>true</shadows></scene>
+    <scene><ambient>0.55 0.55 0.55 1</ambient><background>0.18 0.22 0.28 1</background><shadows>false</shadows></scene>
     <frame name="robot_mount" attached_to="world"><pose>-0.45 0 0.755 0 0 0</pose></frame>
     <frame name="ouster_front_mount" attached_to="world"><pose>1.35 -1.1 1.85 0 0.5 2.5</pose></frame>
     <frame name="ouster_rear_mount" attached_to="world"><pose>-1.25 1.15 2.15 0 0.65 -0.7</pose></frame>
     <frame name="overhead_camera_mount" attached_to="world"><pose>0 0 2.1 0 1.5708 1.5708</pose></frame>
-    <light name="overhead" type="directional"><pose>0 -2 4 0 0 0</pose><diffuse>0.9 0.9 0.9 1</diffuse><specular>0.3 0.3 0.3 1</specular><direction>-0.3 0.4 -1</direction><cast_shadows>true</cast_shadows></light>
+    <!-- No shadows: under software rendering in Docker every shadow-casting light
+         renders shadow maps for each camera image (alone, the overhead color
+         camera ran at 0.41 of real time with them, 0.62 without). -->
+    <light name="overhead" type="directional"><pose>0 -2 4 0 0 0</pose><diffuse>0.9 0.9 0.9 1</diffuse><specular>0.3 0.3 0.3 1</specular><direction>-0.3 0.4 -1</direction><cast_shadows>false</cast_shadows></light>
     <model name="floor"><static>true</static><pose>0 0 -0.025 0 0 0</pose>
       <link name="body"><collision name="solid"><geometry><box><size>8 8 0.05</size></box></geometry></collision>
         <visual name="appearance"><geometry><box><size>8 8 0.05</size></box></geometry><material><ambient>0.12 0.15 0.18 1</ambient><diffuse>0.12 0.15 0.18 1</diffuse><specular>0.25 0.25 0.25 1</specular><pbr><metal><metalness>0</metalness><roughness>0.6</roughness></metal></pbr></material></visual>
