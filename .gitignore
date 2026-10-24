@@ -49,3 +49,12 @@ qtcreator-*
 
 # Catkin custom files
 CATKIN_IGNORE
+
+# ROS 2 / local development
+/install/
+/log/
+__pycache__/
+.pytest_cache/
+.DS_Store
+.env
+.venv/

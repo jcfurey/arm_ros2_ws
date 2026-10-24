@@ -1,0 +1,37 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Background Color: 40; 44; 52
+    Fixed Frame: world
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Cell Size: 0.1
+      Plane Cell Count: 20
+    - Class: moveit_rviz_plugin/MotionPlanning
+      Name: MotionPlanning
+      Enabled: true
+      Planning Group: arm
+      Robot Description: robot_description
+      Planning Scene Topic: /monitored_planning_scene
+      Planned Path:
+        Trajectory Topic: /display_planned_path
+        Loop Animation: true
+      Planning Request:
+        Query Goal State: true
+        Query Start State: false
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 1.8
+      Focal Point: {X: 0.0, Y: 0.0, Z: 0.45}
+      Pitch: 0.35
+      Yaw: 0.8
+Window Geometry:
+  Width: 1100
+  Height: 800

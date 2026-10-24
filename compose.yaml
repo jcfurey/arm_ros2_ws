@@ -1,0 +1,30 @@
+services:
+  dev:
+    image: arm-ros2-ws:lyrical
+    build:
+      context: .
+      args:
+        ROS_IMAGE: ${ROS_IMAGE:-ros:lyrical-ros-base-resolute}
+    platform: ${DOCKER_PLATFORM:-linux/arm64}
+    init: true
+    shm_size: 1gb
+    ports:
+      - "127.0.0.1:${DESKTOP_PORT:-6080}:6080"
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-42}
+      SIM_MODE: ${SIM_MODE:-gazebo}
+      GUI: ${GUI:-true}
+      RVIZ: ${RVIZ:-true}
+      ENABLE_DESKTOP: ${ENABLE_DESKTOP:-1}
+    volumes:
+      - .:/ws
+      - colcon-build:/ws/build
+      - colcon-install:/ws/install
+      - colcon-log:/ws/log
+    command: ["bash", "/ws/scripts/start.sh"]
+    stop_grace_period: 20s
+
+volumes:
+  colcon-build:
+  colcon-install:
+  colcon-log:
