@@ -209,7 +209,12 @@ def launch_setup(context):
                     # prevents os_cloud applying the real housing's 180deg + 36mm transform.
                     "pub_static_tf": False, "sensor_frame": f"{name}/os_sensor",
                     "lidar_frame": f"{name}/lidar_frame", "imu_frame": f"{name}/os_imu",
-                    "timestamp_mode": "TIME_FROM_ROS_TIME",
+                    # The simulated sensor writes simulation time into its packets, as a
+                    # PTP-synced unit writes its synced clock, so each scan keeps its exact
+                    # start. TIME_FROM_ROS_TIME re-stamps scans from packet arrival on
+                    # os_cloud's clock, which put them up to 30 ms off (6.6 ms standard
+                    # deviation), on a 1 kHz /clock as well as the 200 Hz one.
+                    "timestamp_mode": "TIME_FROM_INTERNAL_OSC",
                     # A 3.1 MB best-effort cloud is lost whole when any UDP
                     # fragment is; reliable delivery retransmits the fragment
                     # (see docker/cyclonedds.xml). Packets are reliable too,

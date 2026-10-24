@@ -357,6 +357,15 @@ and `pub_static_tf` is false because the sensor URDF owns those transforms.
 This prevents the decoder from applying the physical housing's additional
 180° rotation and 36.18 mm offset to the simulation's identity XYZ lookup.
 
+Clouds carry the exact simulation time of their scan's first column:
+`os_cloud` runs with `timestamp_mode: TIME_FROM_INTERNAL_OSC`, and the
+simulated sensor writes simulation time into its packets, as a PTP-synced
+unit writes its synced clock. `TIME_FROM_ROS_TIME`, the usual mode for a
+sensor without PTP, re-stamps each scan from its packets' arrival on
+`os_cloud`'s clock. Here that put scans 6 ms early on average and single
+scans up to 30 ms off, even with `os_cloud` on a 1 kHz clock. That error
+matters wherever a cloud meets the moving arm's TF or another sensor's data.
+
 ```sh
 LIDAR_HZ=2.0 make up           # lower the scan rate
 ENABLE_OUSTERS=false make up  # robot/world only
