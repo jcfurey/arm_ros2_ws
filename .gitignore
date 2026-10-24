@@ -58,4 +58,3 @@ __pycache__/
 .DS_Store
 .env
 .venv/
-/src/external/
