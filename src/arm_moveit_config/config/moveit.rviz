@@ -8,6 +8,36 @@ Visualization Manager:
     Fixed Frame: world
     Frame Rate: 30
   Displays:
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Ouster front
+      Enabled: true
+      Topic:
+        Value: /sensor/lidar/ouster_front/points
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 2
+      Color Transformer: FlatColor
+      Color: 70; 190; 255
+      Alpha: 0.45
+      Style: Points
+      Size (Pixels): 2
+      Decay Time: 0
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Ouster rear
+      Enabled: true
+      Topic:
+        Value: /sensor/lidar/ouster_rear/points
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 2
+      Color Transformer: FlatColor
+      Color: 255; 170; 60
+      Alpha: 0.45
+      Style: Points
+      Size (Pixels): 2
+      Decay Time: 0
     - Class: rviz_default_plugins/Grid
       Name: Grid
       Enabled: true
@@ -23,13 +53,13 @@ Visualization Manager:
         Trajectory Topic: /display_planned_path
         Loop Animation: true
       Planning Request:
-        Query Goal State: true
+        Query Goal State: false
         Query Start State: false
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 1.8
-      Focal Point: {X: 0.0, Y: 0.0, Z: 0.45}
+      Distance: 2.5
+      Focal Point: {X: -0.1, Y: 0.0, Z: 0.95}
       Pitch: 0.35
       Yaw: 0.8
 Window Geometry:

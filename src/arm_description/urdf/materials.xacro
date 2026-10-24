@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="xarm_materials" params="">
+    <material name="White"><color rgba="0.88 0.91 0.93 1"/></material>
+    <material name="Silver"><color rgba="0.30 0.36 0.42 1"/></material>
+    <material name="Black"><color rgba="0.055 0.07 0.09 1"/></material>
+  </xacro:macro>
+  <!-- SDFormat material extension; no Gazebo Classic material scripts. -->
+  <xacro:macro name="gazebo_surface" params="link color metalness:=0.0 roughness:=0.4">
+    <gazebo reference="${link}">
+      <visual>
+        <material>
+          <ambient>${color}</ambient><diffuse>${color}</diffuse>
+          <specular>0.35 0.35 0.35 1</specular>
+          <pbr><metal><metalness>${metalness}</metalness><roughness>${roughness}</roughness></metal></pbr>
+        </material>
+      </visual>
+    </gazebo>
+  </xacro:macro>
+</robot>

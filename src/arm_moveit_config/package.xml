@@ -2,9 +2,10 @@
 <package format="3">
   <name>arm_moveit_config</name>
   <version>0.1.0</version>
-  <description>MoveIt 2 and ros2_control configuration for the demo arm.</description>
+  <description>MoveIt 2 and ros2_control configuration for xArm6 and the demo arm.</description>
   <maintainer email="maintainer@example.com">Workspace maintainers</maintainer>
   <license>Apache-2.0</license>
+  <license>BSD-3-Clause</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
   <exec_depend>arm_description</exec_depend>
   <exec_depend>moveit_configs_utils</exec_depend>

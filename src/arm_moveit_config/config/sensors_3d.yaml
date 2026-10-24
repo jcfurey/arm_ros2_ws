@@ -1,0 +1,19 @@
+sensors: [ouster_front, ouster_rear]
+ouster_front:
+  sensor_plugin: occupancy_map_monitor/PointCloudOctomapUpdater
+  point_cloud_topic: /sensor/lidar/ouster_front/points
+  max_range: 5.0
+  point_subsample: 4
+  padding_offset: 0.04
+  padding_scale: 1.0
+  filtered_cloud_topic: /perception/front_filtered
+  max_update_rate: 2.0
+ouster_rear:
+  sensor_plugin: occupancy_map_monitor/PointCloudOctomapUpdater
+  point_cloud_topic: /sensor/lidar/ouster_rear/points
+  max_range: 5.0
+  point_subsample: 4
+  padding_offset: 0.04
+  padding_scale: 1.0
+  filtered_cloud_topic: /perception/rear_filtered
+  max_update_rate: 2.0

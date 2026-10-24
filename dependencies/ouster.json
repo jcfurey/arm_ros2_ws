@@ -1,0 +1,15 @@
+{
+  "repositories": [
+    {
+      "directory": "gz_sensors_ouster",
+      "url": "https://github.com/jcfurey/gz_sensors_ouster.git",
+      "branch": "cam_wip",
+      "revision": "545e5cc1f3924a5708f55b8225dd115842d924f9"
+    },
+    {
+      "directory": "ouster-ros",
+      "url": "https://github.com/jcfurey/ouster-ros.git",
+      "revision": "57be1cac6ad617d5a759160b7f98fd1c154e075d"
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="xarm6">
+  <xacro:arg name="hardware" default="mock"/>
+  <xacro:arg name="controllers_file" default=""/>
+  <xacro:arg name="mount_xyz" default="0 0 0"/>
+  <xacro:arg name="mount_rpy" default="0 0 0"/>
+  <xacro:property name="hardware" value="$(arg hardware)"/>
+  <xacro:property name="control_plugin" value="${'gz_ros2_control/GazeboSimSystem' if hardware == 'gazebo' else 'mock_components/GenericSystem'}"/>
+  <!-- Keep the pinned manufacturer geometry and control macros, with local materials. -->
+  <xacro:property name="is_ros2" value="true"/>
+  <xacro:property name="use_xacro_load_yaml" value="true"/>
+  <xacro:property name="mesh_suffix" value="stl"/>
+  <xacro:property name="mesh_path" value="${'file://$(find xarm_description)/meshes' if hardware == 'gazebo' else 'package://xarm_description/meshes'}"/>
+  <xacro:include filename="$(find arm_description)/urdf/materials.xacro"/>
+  <xacro:xarm_materials/>
+  <xacro:include filename="$(find xarm_description)/urdf/common/common.link.xacro"/>
+  <xacro:include filename="$(find xarm_description)/urdf/xarm6/xarm6_robot_macro.xacro"/>
+  <link name="world"/>
+  <joint name="world_joint" type="fixed">
+    <parent link="world"/><child link="link_base"/>
+    <origin xyz="$(arg mount_xyz)" rpy="$(arg mount_rpy)"/>
+  </joint>
+  <xacro:xarm6_robot limited="true" ros2_control_plugin="${control_plugin}"
+      kinematics_params_filename="$(find xarm_description)/config/kinematics/default/xarm6_default_kinematics.yaml"/>
+  <link name="link_eef"/>
+  <joint name="joint_eef" type="fixed"><parent link="link6"/><child link="link_eef"/></joint>
+  <xacro:gazebo_surface link="link_base" color="0.88 0.91 0.93 1"/>
+  <xacro:gazebo_surface link="link1" color="0.88 0.91 0.93 1"/>
+  <xacro:gazebo_surface link="link2" color="0.88 0.91 0.93 1"/>
+  <xacro:gazebo_surface link="link3" color="0.88 0.91 0.93 1"/>
+  <xacro:gazebo_surface link="link4" color="0.88 0.91 0.93 1"/>
+  <xacro:gazebo_surface link="link5" color="0.88 0.91 0.93 1"/>
+  <xacro:gazebo_surface link="link6" color="0.30 0.36 0.42 1" metalness="0.75" roughness="0.25"/>
+  <xacro:if value="${hardware == 'gazebo'}">
+    <gazebo>
+      <plugin filename="libgz_ros2_control-system.so" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+        <parameters>$(arg controllers_file)</parameters>
+      </plugin>
+    </gazebo>
+  </xacro:if>
+</robot>

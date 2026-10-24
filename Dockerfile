@@ -20,6 +20,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-dri mesa-utils \
     && rm -rf /var/lib/apt/lists/*
 
+# Required by the upstream xArm description's standalone visualization helpers.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-${ROS_DISTRO}-joint-state-publisher \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build the source-pinned Ouster driver and Gazebo sensor plugin on ARM64.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpcl-dev libtins-dev libzip-dev \
+    ros-${ROS_DISTRO}-pcl-conversions \
+    ros-${ROS_DISTRO}-rmw-zenoh-cpp \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-${ROS_DISTRO}-foxglove-bridge python3-websocket \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN useradd --create-home --uid 1001 --shell /bin/bash ros \
     && echo 'ros ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/ros \
     && chmod 0440 /etc/sudoers.d/ros \
@@ -36,6 +52,6 @@ ENV DISPLAY=:1 \
     RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
     ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 WORKDIR /ws
-EXPOSE 6080
+EXPOSE 8765
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["bash"]

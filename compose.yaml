@@ -9,13 +9,21 @@ services:
     init: true
     shm_size: 1gb
     ports:
-      - "127.0.0.1:${DESKTOP_PORT:-6080}:6080"
+      - "127.0.0.1:${FOXGLOVE_PORT:-8765}:8765"
     environment:
       ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-42}
+      ROBOT_MODEL: ${ROBOT_MODEL:-xarm6}
+      TEST_WORLD: ${TEST_WORLD:-workcell}
+      ENABLE_OUSTERS: ${ENABLE_OUSTERS:-true}
+      ENABLE_PERCEPTION: ${ENABLE_PERCEPTION:-false}
+      LIDAR_HZ: ${LIDAR_HZ:-3.0}
       SIM_MODE: ${SIM_MODE:-gazebo}
-      GUI: ${GUI:-true}
-      RVIZ: ${RVIZ:-true}
-      ENABLE_DESKTOP: ${ENABLE_DESKTOP:-1}
+      GUI: ${GUI:-false}
+      RVIZ: ${RVIZ:-false}
+      ENABLE_DESKTOP: ${ENABLE_DESKTOP:-0}
+      CMAKE_BUILD_PARALLEL_LEVEL: ${CMAKE_BUILD_PARALLEL_LEVEL:-1}
+      MAKEFLAGS: ${MAKEFLAGS:--j1 -l2}
+      OMP_NUM_THREADS: ${OMP_NUM_THREADS:-2}
     volumes:
       - .:/ws
       - colcon-build:/ws/build

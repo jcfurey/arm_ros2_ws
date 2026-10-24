@@ -1,4 +1,4 @@
-.PHONY: image up down shell build mock headless smoke smoke-mock logs
+.PHONY: image up down shell build mock headless demo obstacles perception smoke smoke-mock smoke-obstacles bridge-check registration-check logs
 
 image:
 	docker compose build
@@ -14,9 +14,21 @@ mock:
 	SIM_MODE=mock GUI=false docker compose up -d
 headless:
 	GUI=false RVIZ=false ENABLE_DESKTOP=0 docker compose up -d
+demo:
+	ROBOT_MODEL=demo docker compose up -d
+obstacles:
+	TEST_WORLD=obstacle_course docker compose up -d
+perception:
+	ENABLE_PERCEPTION=true docker compose up -d
 smoke:
 	docker compose run --rm --no-deps -e ROS_DOMAIN_ID=43 dev bash scripts/smoke-test.sh gazebo
 smoke-mock:
 	docker compose run --rm --no-deps -e ROS_DOMAIN_ID=44 dev bash scripts/smoke-test.sh mock
+smoke-obstacles:
+	TEST_WORLD=obstacle_course docker compose run --rm --no-deps -e ROS_DOMAIN_ID=45 dev bash scripts/smoke-test.sh gazebo
+bridge-check:
+	docker compose exec --user ros dev /usr/local/bin/ros-shell.sh python3 scripts/check_bridge.py
+registration-check:
+	docker compose exec --user ros dev /usr/local/bin/ros-shell.sh bash -c 'python3 scripts/check_registration.py --world "$${TEST_WORLD:-workcell}"'
 logs:
 	docker compose logs -f dev

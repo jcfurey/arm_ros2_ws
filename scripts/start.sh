@@ -22,6 +22,9 @@ if [[ ${ENABLE_DESKTOP:-0} == 1 ]]; then
     echo 'Desktop: http://localhost:6080/vnc.html?autoconnect=true&resize=scale'
 fi
 ros2 launch arm_bringup demo.launch.py \
-    mode:="${SIM_MODE:-gazebo}" gui:="${GUI:-true}" rviz:="${RVIZ:-true}" "$@" &
+    robot:="${ROBOT_MODEL:-xarm6}" mode:="${SIM_MODE:-gazebo}" \
+    world:="${TEST_WORLD:-workcell}" gui:="${GUI:-false}" rviz:="${RVIZ:-false}" \
+    ousters:="${ENABLE_OUSTERS:-true}" perception:="${ENABLE_PERCEPTION:-false}" \
+    lidar_hz:="${LIDAR_HZ:-3.0}" "$@" &
 children+=("$!")
 wait -n "${children[@]}"

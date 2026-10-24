@@ -1,0 +1,13 @@
+{
+  "names": {
+    "xarm_description": {
+      "cmake-args": ["-DCMAKE_POLICY_VERSION_MINIMUM=3.5"]
+    },
+    "ouster_ros": {
+      "cmake-args": ["-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=OFF"]
+    },
+    "gz_sensors_ouster": {
+      "cmake-args": ["-DCMAKE_BUILD_TYPE=Release", "-DGZ_GPU_OUSTER_USE_CUDA=OFF", "-DGZ_GPU_OUSTER_USE_HIP=OFF", "-DGZ_GPU_OUSTER_USE_SYCL=OFF"]
+    }
+  }
+}
