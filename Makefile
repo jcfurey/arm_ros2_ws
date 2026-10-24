@@ -1,4 +1,4 @@
-.PHONY: image up down shell build mock headless demo obstacles perception smoke smoke-mock smoke-obstacles bridge-check registration-check rates-check pick-check camera-check imu-check logs
+.PHONY: image up down shell build mock headless demo obstacles perception smoke smoke-mock smoke-obstacles bridge-check registration-check rates-check pick-check camera-check imu-check lidar-motion-check logs
 
 image:
 	docker compose build
@@ -38,5 +38,7 @@ camera-check:
 	docker compose exec --user ros dev /usr/local/bin/ros-shell.sh bash -c 'python3 scripts/check_realsense.py --camera wrist && python3 scripts/check_realsense.py --camera overhead'
 imu-check:
 	docker compose exec --user ros dev /usr/local/bin/ros-shell.sh python3 scripts/check_imu.py
+lidar-motion-check:
+	docker compose exec --user ros dev /usr/local/bin/ros-shell.sh python3 scripts/check_lidar_motion.py
 logs:
 	docker compose logs -f dev

@@ -210,6 +210,7 @@ make registration-check
 make rates-check   # cloud rates, scan completeness, real-time factor
 make pick-check    # picks both parts in the running workcell (moves them)
 make imu-check     # with WRIST_IMU=true: wrist IMU against the arm's motion (moves the arm)
+make lidar-motion-check  # a box moving past both Ousters (adds and removes it)
 ```
 
 The three `smoke` commands start separate, temporary headless stacks with their own ROS
@@ -226,6 +227,8 @@ and remote mesh assets. `registration-check` transforms each live cloud into
 `world` and checks its distances to the actual SDF surfaces, catching rotated
 or displaced scans even when topics and TF names look valid. The Gazebo smoke
 checks include this registration check when Ousters are enabled.
+`lidar-motion-check` drives a box at 1 m/s past both Ousters and compares
+where each scan saw it with its pose at each point's timestamp.
 To test motion publishing through the bridge as well (moves the simulated arm):
 
 ```sh
@@ -365,6 +368,12 @@ sensor without PTP, re-stamps each scan from its packets' arrival on
 `os_cloud`'s clock. Here that put scans 6 ms early on average and single
 scans up to 30 ms off, even with `os_cloud` on a 1 kHz clock. That error
 matters wherever a cloud meets the moving arm's TF or another sensor's data.
+
+Each point also shows moving geometry where it was at the point's own time,
+the cloud stamp plus its `t` field. The sensor captures the arm and other
+moving models 16 times per scan as it sweeps them, so each point sees them
+within 4 ms of its time; one capture at the end of each scan had shown them
+up to 100 ms late, 50 ms on average. `make lidar-motion-check` measures this.
 
 ```sh
 LIDAR_HZ=2.0 make up           # lower the scan rate
