@@ -25,6 +25,7 @@ ros2 launch arm_bringup demo.launch.py \
     robot:="${ROBOT_MODEL:-xarm6}" mode:="${SIM_MODE:-gazebo}" \
     world:="${TEST_WORLD:-workcell}" gui:="${GUI:-false}" rviz:="${RVIZ:-false}" \
     ousters:="${ENABLE_OUSTERS:-true}" perception:="${ENABLE_PERCEPTION:-false}" \
-    lidar_hz:="${LIDAR_HZ:-3.0}" "$@" &
+    cameras:="${ENABLE_CAMERAS:-true}" gripper:="${ENABLE_GRIPPER:-true}" \
+    lidar_hz:="${LIDAR_HZ:-10.0}" "$@" &
 children+=("$!")
 wait -n "${children[@]}"

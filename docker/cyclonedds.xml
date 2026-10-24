@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Cyclone DDS settings for the all-in-one container (localhost discovery).
+
+  A 1024x64 Ouster cloud is a 3.1 MB message. With Cyclone's default
+  1344-byte fragments that is ~2,300 UDP datagrams per cloud, and losing any
+  one of them discards the whole sample. Docker Desktop's VM caps socket
+  buffers at the kernel default (~208 KB), which a single cloud overruns.
+  Measured with a 3.1 MB / 10 Hz publisher and a 208 KB buffer:
+
+    default fragments, best effort  ~10% delivered
+    default fragments, reliable     ~56% delivered (retransmit-limited)
+    64 KB fragments,   reliable     100% delivered
+
+  Traffic stays on loopback (MTU 64 KiB), so datagrams this large are not
+  IP-fragmented. The launch makes clouds and lidar packets reliable; the
+  larger receive buffer request helps best-effort subscribers where the host
+  allows it (Linux caps it at net.core.rmem_max, which a container cannot
+  raise).
+-->
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain id="any">
+    <General>
+      <MaxMessageSize>65500B</MaxMessageSize>
+      <FragmentSize>65000B</FragmentSize>
+    </General>
+    <Internal>
+      <SocketReceiveBufferSize min="default" max="16MB"/>
+    </Internal>
+  </Domain>
+</CycloneDDS>

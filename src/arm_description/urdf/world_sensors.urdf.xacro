@@ -1,18 +1,30 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="workcell_sensors">
   <xacro:arg name="metadata_path" default=""/>
+  <xacro:arg name="ousters" default="true"/>
   <xacro:arg name="front_xyz" default="1.35 -1.1 1.85"/>
   <xacro:arg name="front_rpy" default="0 0.5 2.5"/>
   <xacro:arg name="rear_xyz" default="-1.25 1.15 2.15"/>
   <xacro:arg name="rear_rpy" default="0 0.65 -0.7"/>
-  <xacro:arg name="lidar_hz" default="3.0"/>
+  <xacro:arg name="lidar_hz" default="10.0"/>
+  <xacro:arg name="overhead_camera" default="false"/>
+  <xacro:arg name="overhead_xyz" default="0 0 2.1"/>
+  <xacro:arg name="overhead_rpy" default="0 1.5708 1.5708"/>
+  <xacro:arg name="overhead_hz" default="10.0"/>
   <link name="sensor_rig">
     <inertial><mass value="0.1"/><inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/></inertial>
   </link>
-  <xacro:include filename="$(find gz_sensors_ouster)/examples/urdf/ouster_macro.xacro"/>
-  <xacro:ouster_sensor name="ouster_front" parent="sensor_rig" metadata_path="$(arg metadata_path)"
-      xyz="$(arg front_xyz)" rpy="$(arg front_rpy)" lidar_hz="$(arg lidar_hz)" ray_mode="raycast"/>
-  <xacro:ouster_sensor name="ouster_rear" parent="sensor_rig" metadata_path="$(arg metadata_path)"
-      xyz="$(arg rear_xyz)" rpy="$(arg rear_rpy)" lidar_hz="$(arg lidar_hz)" ray_mode="raycast"/>
+  <xacro:if value="$(arg ousters)">
+    <xacro:include filename="$(find gz_sensors_ouster)/examples/urdf/ouster_macro.xacro"/>
+    <xacro:ouster_sensor name="ouster_front" parent="sensor_rig" metadata_path="$(arg metadata_path)"
+        xyz="$(arg front_xyz)" rpy="$(arg front_rpy)" lidar_hz="$(arg lidar_hz)" ray_mode="raycast"/>
+    <xacro:ouster_sensor name="ouster_rear" parent="sensor_rig" metadata_path="$(arg metadata_path)"
+        xyz="$(arg rear_xyz)" rpy="$(arg rear_rpy)" lidar_hz="$(arg lidar_hz)" ray_mode="raycast"/>
+  </xacro:if>
+  <xacro:if value="$(arg overhead_camera)">
+    <xacro:include filename="$(find arm_description)/urdf/cameras.xacro"/>
+    <xacro:fixed_d455 name="overhead" parent="sensor_rig" xyz="$(arg overhead_xyz)" rpy="$(arg overhead_rpy)"
+        update_rate="$(arg overhead_hz)"/>
+  </xacro:if>
   <gazebo><static>true</static></gazebo>
 </robot>

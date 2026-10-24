@@ -1,8 +1,11 @@
 """Read static primitive SDF worlds into a planning scene, without ROS imports.
 
 Supports the explicitly authored model/link/collision pose hierarchy in our
-worlds. Unsupported geometry, includes, moving bodies, or frame references fail
-instead of silently leaving obstacles out of MoveIt.
+worlds. Static models become fixed obstacles. A free model with one link is a
+movable part: it is returned at its initial pose with its collision offsets in
+the model frame, so a live pose stream can keep MoveIt in step with Gazebo.
+Unsupported geometry, includes, articulated moving models, or frame references
+fail instead of silently leaving obstacles out of MoveIt.
 """
 from dataclasses import dataclass
 import math
@@ -41,6 +44,13 @@ def compose(parent, local):
     return tuple(parent[i] + translated[i] for i in range(3)) + multiply(rotation, local[3:])
 
 
+def inverse(pose):
+    x, y, z, w = pose[3:]
+    rotation = (-x, -y, -z, w)
+    translated = multiply(multiply(rotation, (*pose[:3], 0.0)), (x, y, z, w))
+    return tuple(-value for value in translated[:3]) + rotation
+
+
 def pose_values(element, allowed_frame=""):
     pose = element.find("pose")
     if pose is None:
@@ -64,6 +74,9 @@ class SceneObject:
     dimensions: tuple
     pose: tuple
     color: tuple
+    model: str = ""
+    # Collision pose in its model's frame; world pose = model pose * offset.
+    model_offset: tuple = IDENTITY
 
 
 @dataclass(frozen=True)
@@ -72,6 +85,7 @@ class WorldScene:
     mount: tuple
     objects: tuple
     frames: dict
+    movable: tuple = ()
 
 
 def load_world(path):
@@ -90,14 +104,17 @@ def load_world(path):
                 raise ValueError("robot_mount must attach directly to world")
             mount = pose_values(frame, "world")
     objects = []
+    movable = []
     for model in world.findall("model"):
         if model.findall("model") or model.findall("include"):
             raise ValueError("Nested models/includes are not supported by the scene adapter")
-        if model.findtext("static", "false").strip() not in ("true", "1"):
-            raise ValueError(f"Moving model cannot be mirrored as a static obstacle: {model.get('name')}")
+        static = model.findtext("static", "false").strip() in ("true", "1")
+        if not static and len(model.findall("link")) != 1:
+            raise ValueError(f"Moving model needs exactly one link to be synchronized: {model.get('name')}")
         model_pose = local_pose(model)
         for link in model.findall("link"):
-            link_pose = compose(model_pose, local_pose(link))
+            link_offset = local_pose(link)
+            link_pose = compose(model_pose, link_offset)
             visuals = link.findall("visual")
             for collision in link.findall("collision"):
                 geometry = collision.find("geometry")
@@ -120,9 +137,11 @@ def load_world(path):
                 visual = next((v for v in visuals if v.get("name") == collision.get("name")),
                               visuals[0] if visuals else None)
                 color = numbers(visual.findtext("material/diffuse", "0.5 0.5 0.5 1"), 4) if visual is not None else (0.5, 0.5, 0.5, 1.0)
-                objects.append(SceneObject(
+                (objects if static else movable).append(SceneObject(
                     id=f"sdf/{model.attrib['name']}/{link.attrib['name']}/{collision.attrib['name']}",
                     shape=shape, dimensions=dimensions,
                     pose=compose(link_pose, local_pose(collision)), color=color,
+                    model=model.attrib["name"],
+                    model_offset=compose(link_offset, local_pose(collision)),
                 ))
-    return WorldScene(world.attrib["name"], mount, tuple(objects), frames)
+    return WorldScene(world.attrib["name"], mount, tuple(objects), frames, tuple(movable))

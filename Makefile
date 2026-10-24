@@ -1,4 +1,4 @@
-.PHONY: image up down shell build mock headless demo obstacles perception smoke smoke-mock smoke-obstacles bridge-check registration-check logs
+.PHONY: image up down shell build mock headless demo obstacles perception smoke smoke-mock smoke-obstacles bridge-check registration-check rates-check pick-check logs
 
 image:
 	docker compose build
@@ -30,5 +30,9 @@ bridge-check:
 	docker compose exec --user ros dev /usr/local/bin/ros-shell.sh python3 scripts/check_bridge.py
 registration-check:
 	docker compose exec --user ros dev /usr/local/bin/ros-shell.sh bash -c 'python3 scripts/check_registration.py --world "$${TEST_WORLD:-workcell}"'
+rates-check:
+	docker compose exec --user ros dev /usr/local/bin/ros-shell.sh python3 scripts/check_rates.py --min-hz "$${LIDAR_HZ:-10.0}"
+pick-check:
+	docker compose exec --user ros dev /usr/local/bin/ros-shell.sh bash -c 'python3 scripts/check_pick.py --part pick_cube && python3 scripts/check_pick.py --part pick_cylinder'
 logs:
 	docker compose logs -f dev

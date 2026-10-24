@@ -10,7 +10,8 @@ source install/setup.bash
 launch_log=$(mktemp /tmp/arm-smoke.XXXXXX)
 ros2 launch arm_bringup demo.launch.py robot:="$robot" mode:="$mode" world:="$world" \
     ousters:="${ENABLE_OUSTERS:-true}" perception:="${ENABLE_PERCEPTION:-false}" \
-    lidar_hz:="${LIDAR_HZ:-3.0}" bridge:=false gui:=false rviz:=false > "$launch_log" 2>&1 &
+    cameras:="${ENABLE_CAMERAS:-true}" gripper:="${ENABLE_GRIPPER:-true}" \
+    lidar_hz:="${LIDAR_HZ:-10.0}" bridge:=false gui:=false rviz:=false > "$launch_log" 2>&1 &
 launch_pid=$!
 cleanup() {
     trap - EXIT TERM INT
@@ -27,6 +28,13 @@ if ! ros2 run arm_bringup check_stack --robot "$robot" --mode "$mode" --world "$
 fi
 if ((${#sensor_args[@]})); then
     if ! python3 scripts/check_registration.py --world "$world"; then
+        cat "$launch_log"
+        exit 1
+    fi
+fi
+# Physics-level pick and place: the gripper must carry the part to its drop frame.
+if [[ "$mode" == gazebo && "$robot" == xarm6 && "$world" == workcell && ${ENABLE_GRIPPER:-true} == true ]]; then
+    if ! python3 scripts/check_pick.py --world "$world" --part pick_cube; then
         cat "$launch_log"
         exit 1
     fi

@@ -2,6 +2,38 @@ cmake_minimum_required(VERSION 3.20)
 project(arm_bringup)
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rosgraph_msgs REQUIRED)
+# The gz_*_vendor packages install version-agnostic CMake shims for Jetty.
+find_package(gz_sim_vendor REQUIRED)
+find_package(gz_transport_vendor REQUIRED)
+find_package(gz_msgs_vendor REQUIRED)
+find_package(gz_plugin_vendor REQUIRED)
+find_package(gz-sim REQUIRED)
+find_package(gz-transport REQUIRED)
+find_package(gz-msgs REQUIRED)
+find_package(gz-plugin REQUIRED COMPONENTS register)
+
+# World system: real-time pacing that repays late wake-ups (see source).
+add_library(arm_realtime_pacer SHARED src/realtime_pacer.cpp)
+target_compile_features(arm_realtime_pacer PRIVATE cxx_std_17)
+target_link_libraries(arm_realtime_pacer gz-sim::gz-sim gz-plugin::register)
+install(TARGETS arm_realtime_pacer LIBRARY DESTINATION lib)
+
+# World system: welds a grasped part to the hand on request (see source).
+add_library(arm_grasp_weld SHARED src/grasp_weld.cpp)
+target_compile_features(arm_grasp_weld PRIVATE cxx_std_17)
+target_link_libraries(arm_grasp_weld gz-sim::gz-sim gz-plugin::register gz-transport::gz-transport gz-msgs::gz-msgs)
+install(TARGETS arm_grasp_weld LIBRARY DESTINATION lib)
+
+find_package(geometry_msgs REQUIRED)
+add_executable(gz_relay src/gz_relay.cpp)
+target_compile_features(gz_relay PRIVATE cxx_std_17)
+find_package(std_msgs REQUIRED)
+target_link_libraries(gz_relay rclcpp::rclcpp ${rosgraph_msgs_TARGETS} ${geometry_msgs_TARGETS} ${std_msgs_TARGETS}
+  gz-transport::gz-transport gz-msgs::gz-msgs)
+install(TARGETS gz_relay DESTINATION lib/${PROJECT_NAME})
+ament_environment_hooks("${CMAKE_CURRENT_SOURCE_DIR}/env-hooks/${PROJECT_NAME}.dsv.in")
 ament_python_install_package(${PROJECT_NAME})
 install(DIRECTORY launch worlds DESTINATION share/${PROJECT_NAME}
   PATTERN "__pycache__" EXCLUDE)
@@ -11,5 +43,6 @@ install(PROGRAMS scripts/workcell_ui.py DESTINATION lib/${PROJECT_NAME} RENAME w
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(scene_geometry test/test_scene.py)
+  ament_add_pytest_test(pick_geometry test/test_pick.py)
 endif()
 ament_package()

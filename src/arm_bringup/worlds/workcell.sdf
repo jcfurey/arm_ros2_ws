@@ -1,16 +1,32 @@
 <?xml version="1.0"?>
 <sdf version="1.10">
   <world name="arm_world">
-    <physics name="1ms" type="ignored"><max_step_size>0.001</max_step_size><real_time_factor>1</real_time_factor></physics>
-    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
-    <plugin filename="gz-sim-altimeter-system" name="gz::sim::systems::Altimeter"/>
+    <physics name="1ms" type="ignored"><max_step_size>0.001</max_step_size><real_time_factor>0</real_time_factor></physics>
+    <!-- Bullet Featherstone enforces the gripper linkage's URDF mimic joints
+         natively (DART cannot), and holds real time with the gripper where DART
+         servoing them reached 0.82 RTF. -->
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"><engine><filename>gz-physics-bullet-featherstone-plugin</filename></engine></plugin>
+    <!-- gz-sim paces steps itself only when real_time_factor > 0, and drops the
+         time a late wake-up loses. This system holds real time with catch-up. -->
+    <plugin filename="arm_realtime_pacer" name="arm_bringup::RealtimePacer"><real_time_factor>1.0</real_time_factor></plugin>
     <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <!-- Holds a gripped part to the hand between grasp and release (see grasp_weld.cpp). -->
+    <plugin filename="arm_grasp_weld" name="arm_bringup::GraspWeld"/>
     <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <!-- Renders cameras only (the Ouster raycaster needs no renderer). Cameras render
+         only while subscribed. -->
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors"><render_engine>ogre2</render_engine></plugin>
     <gravity>0 0 -9.81</gravity>
     <scene><ambient>0.55 0.55 0.55 1</ambient><background>0.18 0.22 0.28 1</background><shadows>true</shadows></scene>
     <frame name="robot_mount" attached_to="world"><pose>-0.45 0 0.755 0 0 0</pose></frame>
     <frame name="ouster_front_mount" attached_to="world"><pose>1.35 -1.1 1.85 0 0.5 2.5</pose></frame>
     <frame name="ouster_rear_mount" attached_to="world"><pose>-1.25 1.15 2.15 0 0.65 -0.7</pose></frame>
+    <!-- Looking straight down at the bench, image width along the bench length. -->
+    <frame name="overhead_camera_mount" attached_to="world"><pose>0 0 2.1 0 1.5708 1.5708</pose></frame>
+    <!-- Where /motion/command <part> sets each part down (on the bench top),
+         with room for the open gripper and wrist camera at any yaw. -->
+    <frame name="pick_cube_drop" attached_to="world"><pose>-0.05 0.30 0.75 0 0 0</pose></frame>
+    <frame name="pick_cylinder_drop" attached_to="world"><pose>0.20 -0.05 0.75 0 0 0</pose></frame>
     <light name="overhead" type="directional"><pose>0 -2 4 0 0 0</pose><diffuse>0.9 0.9 0.9 1</diffuse><specular>0.3 0.3 0.3 1</specular><direction>-0.3 0.4 -1</direction><cast_shadows>true</cast_shadows></light>
     <model name="floor"><static>true</static><pose>0 0 -0.025 0 0 0</pose>
       <link name="body"><collision name="solid"><geometry><box><size>8 8 0.05</size></box></geometry></collision>
@@ -80,6 +96,27 @@
     <model name="ouster_rear_stand"><static>true</static><pose>-1.25 1.15 1.05 0 0 0</pose>
       <link name="body"><collision name="solid"><geometry><cylinder><radius>0.025</radius><length>2.1</length></cylinder></geometry></collision>
         <visual name="appearance"><geometry><cylinder><radius>0.025</radius><length>2.1</length></cylinder></geometry><material><ambient>0.12 0.18 0.22 1</ambient><diffuse>0.12 0.18 0.22 1</diffuse></material></visual>
+      </link>
+    </model>
+    <!-- Free parts for the gripper, at the density of water. One link each, so
+         their poses can be mirrored into MoveIt (gz_relay streams
+         /parts/<name>/pose). -->
+    <model name="pick_cube"><pose>0.0 0.15 0.770 0 0 0.3</pose>
+      <link name="body">
+        <inertial><mass>0.064</mass><inertia><ixx>1.707e-05</ixx><iyy>1.707e-05</iyy><izz>1.707e-05</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia></inertial>
+        <collision name="solid"><geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode><bullet><friction>1.0</friction><friction2>1.0</friction2></bullet></friction><contact><ode><min_depth>0.0005</min_depth></ode></contact></surface>
+        </collision>
+        <visual name="appearance"><geometry><box><size>0.04 0.04 0.04</size></box></geometry><material><ambient>0.95 0.78 0.12 1</ambient><diffuse>0.95 0.78 0.12 1</diffuse><specular>0.25 0.25 0.25 1</specular><pbr><metal><metalness>0</metalness><roughness>0.5</roughness></metal></pbr></material></visual>
+      </link>
+    </model>
+    <model name="pick_cylinder"><pose>0.05 -0.10 0.790 0 0 0</pose>
+      <link name="body">
+        <inertial><mass>0.1005</mass><inertia><ixx>6.37e-05</ixx><iyy>6.37e-05</iyy><izz>2.01e-05</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia></inertial>
+        <collision name="solid"><geometry><cylinder><radius>0.02</radius><length>0.08</length></cylinder></geometry>
+          <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode><bullet><friction>1.0</friction><friction2>1.0</friction2></bullet></friction><contact><ode><min_depth>0.0005</min_depth></ode></contact></surface>
+        </collision>
+        <visual name="appearance"><geometry><cylinder><radius>0.02</radius><length>0.08</length></cylinder></geometry><material><ambient>0.55 0.27 0.78 1</ambient><diffuse>0.55 0.27 0.78 1</diffuse><specular>0.25 0.25 0.25 1</specular><pbr><metal><metalness>0</metalness><roughness>0.5</roughness></metal></pbr></material></visual>
       </link>
     </model>
   </world>

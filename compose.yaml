@@ -16,7 +16,9 @@ services:
       TEST_WORLD: ${TEST_WORLD:-workcell}
       ENABLE_OUSTERS: ${ENABLE_OUSTERS:-true}
       ENABLE_PERCEPTION: ${ENABLE_PERCEPTION:-false}
-      LIDAR_HZ: ${LIDAR_HZ:-3.0}
+      ENABLE_CAMERAS: ${ENABLE_CAMERAS:-true}
+      ENABLE_GRIPPER: ${ENABLE_GRIPPER:-true}
+      LIDAR_HZ: ${LIDAR_HZ:-10.0}
       SIM_MODE: ${SIM_MODE:-gazebo}
       GUI: ${GUI:-false}
       RVIZ: ${RVIZ:-false}
@@ -24,6 +26,9 @@ services:
       CMAKE_BUILD_PARALLEL_LEVEL: ${CMAKE_BUILD_PARALLEL_LEVEL:-1}
       MAKEFLAGS: ${MAKEFLAGS:--j1 -l2}
       OMP_NUM_THREADS: ${OMP_NUM_THREADS:-2}
+      # Idle raycast threads sleep instead of spinning against the sim thread.
+      OMP_WAIT_POLICY: ${OMP_WAIT_POLICY:-PASSIVE}
+      CYCLONEDDS_URI: ${CYCLONEDDS_URI:-file:///ws/docker/cyclonedds.xml}
     volumes:
       - .:/ws
       - colcon-build:/ws/build

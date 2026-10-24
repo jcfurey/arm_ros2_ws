@@ -4,6 +4,11 @@
   <xacro:arg name="controllers_file" default=""/>
   <xacro:arg name="mount_xyz" default="0 0 0"/>
   <xacro:arg name="mount_rpy" default="0 0 0"/>
+  <!-- UFACTORY xArm Gripper on the flange, and the RealSense D435i camera
+       stand UFACTORY mounts between flange and gripper. -->
+  <xacro:arg name="gripper" default="true"/>
+  <xacro:arg name="wrist_camera" default="true"/>
+  <xacro:arg name="camera_hz" default="15.0"/>
   <xacro:property name="hardware" value="$(arg hardware)"/>
   <xacro:property name="control_plugin" value="${'gz_ros2_control/GazeboSimSystem' if hardware == 'gazebo' else 'mock_components/GenericSystem'}"/>
   <!-- Keep the pinned manufacturer geometry and control macros, with local materials. -->
@@ -14,16 +19,65 @@
   <xacro:include filename="$(find arm_description)/urdf/materials.xacro"/>
   <xacro:xarm_materials/>
   <xacro:include filename="$(find xarm_description)/urdf/common/common.link.xacro"/>
-  <xacro:include filename="$(find xarm_description)/urdf/xarm6/xarm6_robot_macro.xacro"/>
+  <xacro:include filename="$(find xarm_description)/urdf/xarm6/xarm6.urdf.xacro"/>
+  <xacro:include filename="$(find xarm_description)/urdf/xarm6/xarm6.transmission.xacro"/>
+  <xacro:include filename="$(find xarm_description)/urdf/xarm6/xarm6.gazebo.xacro"/>
   <link name="world"/>
   <joint name="world_joint" type="fixed">
     <parent link="world"/><child link="link_base"/>
     <origin xyz="$(arg mount_xyz)" rpy="$(arg mount_rpy)"/>
   </joint>
-  <xacro:xarm6_robot limited="true" ros2_control_plugin="${control_plugin}"
+  <!-- UFACTORY's xarm6_robot macro with limited="true", minus its ros2_control
+       block, which cannot set initial joint positions. -->
+  <xacro:property name="limits" value="${[(-pi*0.99, pi*0.99), (-2.059, 2.0944), (-pi*0.99, 0.19198),
+                                         (-pi*0.99, pi*0.99), (-1.69297, pi*0.99), (-pi*0.99, pi*0.99)]}"/>
+  <xacro:xarm6_urdf prefix=""
+      joint1_lower_limit="${limits[0][0]}" joint1_upper_limit="${limits[0][1]}"
+      joint2_lower_limit="${limits[1][0]}" joint2_upper_limit="${limits[1][1]}"
+      joint3_lower_limit="${limits[2][0]}" joint3_upper_limit="${limits[2][1]}"
+      joint4_lower_limit="${limits[3][0]}" joint4_upper_limit="${limits[3][1]}"
+      joint5_lower_limit="${limits[4][0]}" joint5_upper_limit="${limits[4][1]}"
+      joint6_lower_limit="${limits[5][0]}" joint6_upper_limit="${limits[5][1]}"
       kinematics_params_filename="$(find xarm_description)/config/kinematics/default/xarm6_default_kinematics.yaml"/>
-  <link name="link_eef"/>
+  <xacro:xarm6_transmission prefix="" hard_interface="PositionJointInterface"/>
+  <xacro:xarm6_gazebo prefix=""/>
+  <!-- Start at the SRDF's home pose. With a gripper, the all-zero pose points
+       the fingers into the bench, so home is UFACTORY's "hold-up" pose
+       (joint5 = -90 deg). Keep in step with arm_moveit_config xarm6/arm.srdf.xacro. -->
+  <xacro:property name="home" value="${[0, 0, 0, 0, -1.5708 if '$(arg gripper)' == 'true' else 0, 0]}"/>
+  <xacro:macro name="arm_joint" params="index">
+    <joint name="joint${index}">
+      <command_interface name="position">
+        <param name="min">${limits[index - 1][0]}</param><param name="max">${limits[index - 1][1]}</param>
+      </command_interface>
+      <command_interface name="velocity"><param name="min">-3.14</param><param name="max">3.14</param></command_interface>
+      <state_interface name="position"><param name="initial_value">${home[index - 1]}</param></state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+  </xacro:macro>
+  <ros2_control name="XArm6System" type="system">
+    <hardware><plugin>${control_plugin}</plugin></hardware>
+    <xacro:arm_joint index="1"/><xacro:arm_joint index="2"/><xacro:arm_joint index="3"/>
+    <xacro:arm_joint index="4"/><xacro:arm_joint index="5"/><xacro:arm_joint index="6"/>
+  </ros2_control>
+  <xacro:if value="$(arg wrist_camera)">
+    <!-- link_eef becomes UFACTORY's camera stand, with the D435i frame tree. -->
+    <xacro:include filename="$(find xarm_description)/urdf/camera/realsense_d435i.urdf.xacro"/>
+    <xacro:d435i_urdf add_d435i_links="true"/>
+    <xacro:include filename="$(find arm_description)/urdf/cameras.xacro"/>
+    <xacro:if value="${hardware == 'gazebo'}">
+      <xacro:d435i_camera name="wrist" color_link="camera_color_frame" color_optical="camera_color_optical_frame"
+          depth_link="camera_depth_frame" depth_optical="camera_depth_optical_frame" update_rate="$(arg camera_hz)"/>
+    </xacro:if>
+  </xacro:if>
+  <xacro:unless value="$(arg wrist_camera)">
+    <link name="link_eef"/>
+  </xacro:unless>
   <joint name="joint_eef" type="fixed"><parent link="link6"/><child link="link_eef"/></joint>
+  <xacro:if value="$(arg gripper)">
+    <xacro:include filename="$(find arm_description)/urdf/xarm_gripper.xacro"/>
+    <xacro:xarm_gripper attach_to="link_eef" control_plugin="${control_plugin}"/>
+  </xacro:if>
   <xacro:gazebo_surface link="link_base" color="0.88 0.91 0.93 1"/>
   <xacro:gazebo_surface link="link1" color="0.88 0.91 0.93 1"/>
   <xacro:gazebo_surface link="link2" color="0.88 0.91 0.93 1"/>

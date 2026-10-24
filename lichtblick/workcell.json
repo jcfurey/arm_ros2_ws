@@ -144,6 +144,72 @@
       "buttonColor": "#c62828",
       "advancedView": false,
       "value": "{\"data\": \"stop\"}"
+    },
+    "Publish!pick_cube": {
+      "title": "Pick cube",
+      "topicName": "/motion/command",
+      "datatype": "std_msgs/msg/String",
+      "buttonText": "Pick cube",
+      "buttonTooltip": "Pick the cube and set it at its drop frame, or back home",
+      "buttonColor": "#ef6c00",
+      "advancedView": false,
+      "value": "{\"data\": \"pick_cube\"}"
+    },
+    "Publish!pick_cylinder": {
+      "title": "Pick cylinder",
+      "topicName": "/motion/command",
+      "datatype": "std_msgs/msg/String",
+      "buttonText": "Pick cylinder",
+      "buttonTooltip": "Pick the cylinder and set it at its drop frame, or back home",
+      "buttonColor": "#f9a825",
+      "advancedView": false,
+      "value": "{\"data\": \"pick_cylinder\"}"
+    },
+    "Publish!open": {
+      "title": "Open",
+      "topicName": "/motion/command",
+      "datatype": "std_msgs/msg/String",
+      "buttonText": "Open",
+      "buttonTooltip": "Open the gripper (releases a part a failed pick left in the hand)",
+      "buttonColor": "#00838f",
+      "advancedView": false,
+      "value": "{\"data\": \"open\"}"
+    },
+    "Publish!close": {
+      "title": "Close",
+      "topicName": "/motion/command",
+      "datatype": "std_msgs/msg/String",
+      "buttonText": "Close",
+      "buttonTooltip": "Close the gripper",
+      "buttonColor": "#455a64",
+      "advancedView": false,
+      "value": "{\"data\": \"close\"}"
+    },
+    "Image!wrist": {
+      "title": "Wrist camera (D435i)",
+      "imageMode": {
+        "imageTopic": "/camera/wrist/color/image_raw"
+      },
+      "cameraState": {},
+      "followMode": "follow-pose",
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "publish": {}
+    },
+    "Image!overhead": {
+      "title": "Overhead camera (D455)",
+      "imageMode": {
+        "imageTopic": "/camera/overhead/color/image_raw"
+      },
+      "cameraState": {},
+      "followMode": "follow-pose",
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "publish": {}
     }
   },
   "globalVariables": {},
@@ -152,25 +218,52 @@
     "speed": 1
   },
   "layout": {
-    "first": "3D!18i6zy7",
+    "first": {
+      "first": "3D!18i6zy7",
+      "second": {
+        "first": "Image!wrist",
+        "second": "Image!overhead",
+        "direction": "row"
+      },
+      "direction": "column",
+      "splitPercentage": 62
+    },
     "second": {
       "first": {
-        "first": "Publish!ready",
+        "first": {
+          "first": "Publish!ready",
+          "second": "Publish!sweep",
+          "direction": "row"
+        },
         "second": {
-          "first": "Publish!sweep",
-          "second": {
+          "first": {
             "first": "Publish!home",
             "second": "Publish!stop",
             "direction": "row"
           },
-          "direction": "column"
+          "second": {
+            "first": {
+              "first": "Publish!pick_cube",
+              "second": "Publish!pick_cylinder",
+              "direction": "row"
+            },
+            "second": {
+              "first": "Publish!open",
+              "second": "Publish!close",
+              "direction": "row"
+            },
+            "direction": "column",
+            "splitPercentage": 50.0
+          },
+          "direction": "column",
+          "splitPercentage": 33.333333333333336
         },
         "direction": "column",
-        "splitPercentage": 33
+        "splitPercentage": 25.0
       },
       "second": "RawMessagesVirtual!os6rgs",
       "direction": "column",
-      "splitPercentage": 60
+      "splitPercentage": 45
     },
     "direction": "row",
     "splitPercentage": 75

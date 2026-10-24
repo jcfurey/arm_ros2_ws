@@ -1,6 +1,7 @@
 """One robot and MoveIt configuration, backed by Gazebo or mock ros2_control."""
 from pathlib import Path
 import re
+import tempfile
 
 from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
@@ -14,34 +15,67 @@ from launch_ros.actions import Node
 from moveit_configs_utils import MoveItConfigsBuilder
 from arm_bringup.scene import load_world
 import xacro
+import yaml
+
+
+def camera_bridges(name):
+    """Lazy ros_gz_bridge entries for one RealSense-style camera, named like realsense-ros."""
+    gz, ros = f"/camera/{name}", f"/camera/{name}"
+    topics = [
+        ("color/image", "color/image_raw", "sensor_msgs/msg/Image", "gz.msgs.Image"),
+        ("color/camera_info", "color/camera_info", "sensor_msgs/msg/CameraInfo", "gz.msgs.CameraInfo"),
+        # 32FC1 metres rather than the driver's 16UC1 millimetres.
+        ("depth/image", "depth/image_rect_raw", "sensor_msgs/msg/Image", "gz.msgs.Image"),
+        ("depth/camera_info", "depth/camera_info", "sensor_msgs/msg/CameraInfo", "gz.msgs.CameraInfo"),
+        ("depth/image/points", "depth/points", "sensor_msgs/msg/PointCloud2", "gz.msgs.PointCloudPacked"),
+    ]
+    # Lazy entries subscribe to Gazebo only while a ROS subscriber exists, and
+    # Gazebo renders a camera only while it has a subscriber.
+    return [{"gz_topic_name": f"{gz}/{g}", "ros_topic_name": f"{ros}/{r}", "ros_type_name": rt,
+             "gz_type_name": gt, "direction": "GZ_TO_ROS", "lazy": True} for g, r, rt, gt in topics]
 
 
 def launch_setup(context):
+    def flag(name):
+        return LaunchConfiguration(name).perform(context).lower() == "true"
+
     mode = LaunchConfiguration("mode").perform(context)
     robot = LaunchConfiguration("robot").perform(context)
-    gui = LaunchConfiguration("gui").perform(context).lower() == "true"
-    rviz = LaunchConfiguration("rviz").perform(context).lower() == "true"
+    gui = flag("gui")
+    rviz = flag("rviz")
     sim = mode == "gazebo"
-    ousters = sim and LaunchConfiguration("ousters").perform(context).lower() == "true"
-    perception = LaunchConfiguration("perception").perform(context).lower() == "true"
+    ousters = sim and flag("ousters")
+    perception = flag("perception")
     if perception and not ousters:
         raise ValueError("perception requires Gazebo mode and ousters:=true")
+    gripper = robot == "xarm6" and flag("gripper")
+    cameras = sim and flag("cameras")
+    weld = sim and gripper and flag("weld_grasps")
+    wrist_camera = cameras and robot == "xarm6"
     config_dir = Path(get_package_share_directory("arm_moveit_config")) / "config"
     model_config = config_dir / "xarm6" if robot == "xarm6" else config_dir
     description_dir = Path(get_package_share_directory("arm_description")) / "urdf"
     bringup_dir = Path(get_package_share_directory("arm_bringup"))
     world_file = bringup_dir / "worlds" / (LaunchConfiguration("world").perform(context) + ".sdf")
     scene = load_world(world_file)
+    overhead_camera = cameras and "overhead_camera_mount" in scene.frames
     controllers = str(model_config / "ros2_controllers.yaml")
+    description_mappings = {"hardware": mode, "controllers_file": controllers,
+                            "mount_xyz": " ".join(map(str, scene.mount[:3])),
+                            "mount_rpy": " ".join(map(str, scene.mount[3:]))}
+    if robot == "xarm6":
+        description_mappings.update({
+            "gripper": str(gripper).lower(), "wrist_camera": str(wrist_camera).lower(),
+            "camera_hz": LaunchConfiguration("wrist_camera_hz").perform(context)})
+    semantic = ((model_config / "arm.srdf.xacro", {"gripper": str(gripper).lower()}) if robot == "xarm6"
+                else (model_config / "arm.srdf", {}))
     config = (
         MoveItConfigsBuilder("arm", package_name="arm_moveit_config")
         .robot_description(
             file_path=str(description_dir / ("xarm6.urdf.xacro" if robot == "xarm6" else "arm.urdf.xacro")),
-            mappings={"hardware": mode, "controllers_file": controllers,
-                      "mount_xyz": " ".join(map(str, scene.mount[:3])),
-                      "mount_rpy": " ".join(map(str, scene.mount[3:]))},
+            mappings=description_mappings,
         )
-        .robot_description_semantic(file_path=str(model_config / "arm.srdf"))
+        .robot_description_semantic(file_path=str(semantic[0]), mappings=semantic[1])
         .joint_limits(file_path=str(model_config / "joint_limits.yaml"))
         .trajectory_execution(file_path=str(model_config / "moveit_controllers.yaml"))
         .planning_pipelines(pipelines=["ompl"])
@@ -52,6 +86,10 @@ def launch_setup(context):
     )
     if not perception:
         config.sensors_3d.clear()
+    if not gripper:
+        manager = config.trajectory_execution["moveit_simple_controller_manager"]
+        manager["controller_names"] = [name for name in manager["controller_names"] if name != "gripper_controller"]
+        manager.pop("gripper_controller", None)
     physics_description = dict(config.robot_description)
     mesh_package = get_package_share_directory("xarm_description")
     # Gazebo gets local file URIs; ROS visualizers get portable package URIs.
@@ -76,11 +114,11 @@ def launch_setup(context):
     )
     scene_loader = Node(
         package="arm_bringup", executable="load_scene",
-        parameters=[{"world_file": str(world_file)}, common], output="screen",
+        parameters=[{"world_file": str(world_file)}, config.robot_description_semantic, common], output="screen",
     )
     spawner = Node(
         package="controller_manager", executable="spawner",
-        arguments=["joint_state_broadcaster", "arm_controller",
+        arguments=["joint_state_broadcaster", "arm_controller", *(["gripper_controller"] if gripper else []),
                    "--controller-manager", "/controller_manager",
                    "--controller-manager-timeout", "120",
                    "--param-file", controllers],
@@ -102,7 +140,7 @@ def launch_setup(context):
         RegisterEventHandler(OnProcessExit(target_action=spawner, on_exit=after_controllers)),
         RegisterEventHandler(OnProcessExit(target_action=scene_loader, on_exit=after_scene)),
     ]
-    if LaunchConfiguration("bridge").perform(context).lower() == "true":
+    if flag("bridge"):
         mesh_path = Path(get_package_share_directory("xarm_description")) / "meshes"
         actions.append(Node(
             package="foxglove_bridge", executable="foxglove_bridge", name="foxglove_bridge",
@@ -115,18 +153,20 @@ def launch_setup(context):
             }], output="screen",
         ))
     sensor_description = ""
-    if ousters:
+    if ousters or overhead_camera:
         sensor_share = Path(get_package_share_directory("gz_sensors_ouster"))
-        front = scene.frames["ouster_front_mount"]
-        rear = scene.frames["ouster_rear_mount"]
-        sensor_description = xacro.process_file(str(description_dir / "world_sensors.urdf.xacro"), mappings={
-            "metadata_path": str(sensor_share / "config/metadata/os1_64_rev7.json"),
-            "front_xyz": " ".join(map(str, front[:3])), "front_rpy": " ".join(map(str, front[3:])),
-            "rear_xyz": " ".join(map(str, rear[:3])), "rear_rpy": " ".join(map(str, rear[3:])),
-            "lidar_hz": LaunchConfiguration("lidar_hz").perform(context),
-        }).toxml()
+        mappings = {"ousters": str(ousters).lower(), "overhead_camera": str(overhead_camera).lower(),
+                    "metadata_path": str(sensor_share / "config/metadata/os1_64_rev7.json"),
+                    "lidar_hz": LaunchConfiguration("lidar_hz").perform(context),
+                    "overhead_hz": LaunchConfiguration("overhead_camera_hz").perform(context)}
+        for frame, prefix in [("ouster_front_mount", "front"), ("ouster_rear_mount", "rear"),
+                              ("overhead_camera_mount", "overhead")]:
+            if frame in scene.frames:
+                mappings[f"{prefix}_xyz"] = " ".join(map(str, scene.frames[frame][:3]))
+                mappings[f"{prefix}_rpy"] = " ".join(map(str, scene.frames[frame][3:]))
+        sensor_description = xacro.process_file(str(description_dir / "world_sensors.urdf.xacro"),
+                                                mappings=mappings).toxml()
         actions.extend([
-            AppendEnvironmentVariable("GZ_SIM_SYSTEM_PLUGIN_PATH", str(Path(get_package_prefix("gz_sensors_ouster")) / "lib")),
             Node(package="robot_state_publisher", executable="robot_state_publisher",
                  name="sensor_rig_state_publisher",
                  parameters=[{"robot_description": sensor_description}, common],
@@ -138,6 +178,9 @@ def launch_setup(context):
                  arguments=["-name", "workcell_sensors", "-topic", "/sensor_rig/robot_description", "-world", scene.name],
                  output="screen"),
         ])
+    if ousters:
+        actions.append(AppendEnvironmentVariable(
+            "GZ_SIM_SYSTEM_PLUGIN_PATH", str(Path(get_package_prefix("gz_sensors_ouster")) / "lib")))
         for name in ["ouster_front", "ouster_rear"]:
             actions.append(Node(
                 package="ouster_ros", executable="os_cloud", name="os_cloud",
@@ -149,17 +192,28 @@ def launch_setup(context):
                     "pub_static_tf": False, "sensor_frame": f"{name}/os_sensor",
                     "lidar_frame": f"{name}/lidar_frame", "imu_frame": f"{name}/os_imu",
                     "timestamp_mode": "TIME_FROM_ROS_TIME",
+                    # A 3.1 MB best-effort cloud is lost whole when any UDP
+                    # fragment is; reliable delivery retransmits the fragment
+                    # (see docker/cyclonedds.xml). Packets are reliable too,
+                    # so no scan is assembled with missing columns.
+                    "lidar_packet_reliable": True,
+                    f"qos_overrides./sensor/lidar/{name}/points.publisher.reliability": "reliable",
                 }],
             ))
+    # In Gazebo the UI stamps part transforms with Gazebo's pose stamps and
+    # needs no clock of its own; under use_sim_time rclpy would decode /clock
+    # at 200 Hz (~9% of a core).
     ui_node = Node(
         package="arm_bringup", executable="workcell_ui", output="screen",
-        parameters=[common, config.robot_description, {
-            "world_file": str(world_file), "robot": robot, "sensor_description": sensor_description,
+        parameters=[config.robot_description, config.robot_description_semantic, {
+            "world_file": str(world_file), "sensor_description": sensor_description, "part_poses": sim,
+            "weld_model": robot if weld else "",
         }],
     )
     if sim:
         gazebo_dir = Path(get_package_share_directory("ros_gz_sim"))
-        gz_args = f'-r {"" if gui else "-s "}{world_file}'
+        # Cameras render through EGL without an X display unless the GUI runs.
+        gz_args = f'-r {"" if gui else "-s --headless-rendering "}{world_file}'
         gazebo = IncludeLaunchDescription(
             PythonLaunchDescriptionSource(str(gazebo_dir / "launch" / "gz_sim.launch.py")),
             launch_arguments={"gz_args": gz_args}.items(),
@@ -178,13 +232,27 @@ def launch_setup(context):
             return [spawner]
 
         actions.extend([
+            AppendEnvironmentVariable("GZ_SIM_SYSTEM_PLUGIN_PATH", str(Path(get_package_prefix("arm_bringup")) / "lib")),
             gazebo,
-            Node(package="ros_gz_bridge", executable="parameter_bridge",
-                 arguments=[f"/world/{scene.name}/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock"],
-                 remappings=[(f"/world/{scene.name}/clock", "/clock")], output="screen"),
+            # Gazebo publishes its clock every 1 ms step; relaying every one
+            # wakes each use_sim_time node 1000 times a second. Part poses come
+            # from SceneBroadcaster rather than a gz system per part.
+            Node(package="arm_bringup", executable="gz_relay",
+                 parameters=[{"world": scene.name,
+                              "clock_rate": float(LaunchConfiguration("clock_hz").perform(context)),
+                              "parts": list(dict.fromkeys(item.model for item in scene.movable)) or [""]}],
+                 output="screen"),
             RegisterEventHandler(OnProcessExit(target_action=spawn_robot, on_exit=after_spawn)),
             spawn_robot,
         ])
+        bridges = [entry for name, enabled in [("wrist", wrist_camera), ("overhead", overhead_camera)]
+                   if enabled for entry in camera_bridges(name)]
+        if bridges:
+            bridge_config = tempfile.NamedTemporaryFile("w", prefix="arm_gz_bridge_", suffix=".yaml", delete=False)
+            with bridge_config:
+                yaml.safe_dump(bridges, bridge_config)
+            actions.append(Node(package="ros_gz_bridge", executable="parameter_bridge", name="gz_bridge",
+                                parameters=[{"config_file": bridge_config.name}, common], output="screen"))
     else:
         actions.extend([
             Node(package="controller_manager", executable="ros2_control_node",
@@ -201,9 +269,19 @@ def generate_launch_description():
                               description="Serve Foxglove WebSocket data and robot mesh assets for Lichtblick."),
         DeclareLaunchArgument("ousters", default_value="true", choices=["true", "false"],
                               description="Spawn two fixed OS1-64 sensors in Gazebo using cam_wip's CPU raycaster."),
-        DeclareLaunchArgument("lidar_hz", default_value="3.0", description="Scan rate per Ouster sensor."),
+        DeclareLaunchArgument("lidar_hz", default_value="10.0",
+                              description="Scan rate per Ouster sensor; the OS1-64 metadata's 1024x10 mode is 10 Hz."),
         DeclareLaunchArgument("perception", default_value="false", choices=["true", "false"],
                               description="Integrate both Ouster point clouds into MoveIt's occupancy map."),
+        DeclareLaunchArgument("gripper", default_value="true", choices=["true", "false"],
+                              description="Mount the UFACTORY xArm Gripper on the xArm6."),
+        DeclareLaunchArgument("weld_grasps", default_value="true", choices=["true", "false"],
+                              description="Weld a part to the hand in Gazebo once the gripper has closed on "
+                                          "it, instead of holding it by contact friction alone."),
+        DeclareLaunchArgument("cameras", default_value="true", choices=["true", "false"],
+                              description="Add the wrist D435i and overhead D455 RGB-D cameras (Gazebo mode)."),
+        DeclareLaunchArgument("wrist_camera_hz", default_value="15.0", description="Wrist camera frame rate."),
+        DeclareLaunchArgument("overhead_camera_hz", default_value="10.0", description="Overhead camera frame rate."),
         DeclareLaunchArgument("world", default_value="workcell", choices=["workcell", "obstacle_course", "empty"],
                               description="SDF scene used by both Gazebo and MoveIt's collision world."),
         DeclareLaunchArgument("robot", default_value="xarm6", choices=["xarm6", "demo"],
@@ -213,5 +291,7 @@ def generate_launch_description():
         DeclareLaunchArgument("gui", default_value="false", choices=["true", "false"],
                               description="Start the Gazebo GUI (Gazebo mode only)."),
         DeclareLaunchArgument("rviz", default_value="false", choices=["true", "false"]),
+        DeclareLaunchArgument("clock_hz", default_value="200.0",
+                              description="Rate of ROS /clock updates relayed from Gazebo's 1 kHz clock."),
         OpaqueFunction(function=launch_setup),
     ])

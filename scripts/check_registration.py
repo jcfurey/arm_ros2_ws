@@ -8,7 +8,7 @@ import numpy as np
 import rclpy
 from ament_index_python.packages import get_package_share_directory
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 from sensor_msgs.msg import PointCloud2
 from tf2_ros import Buffer, TransformListener
@@ -70,7 +70,8 @@ def main():
     names = ['ouster_front', 'ouster_rear']
     for name in names:
         node.create_subscription(PointCloud2, f'/sensor/lidar/{name}/points',
-                                 lambda msg, name=name: clouds.__setitem__(name, msg), qos_profile_sensor_data)
+                                 lambda msg, name=name: clouds.__setitem__(name, msg),
+                                 QoSProfile(depth=2, reliability=ReliabilityPolicy.RELIABLE))
     try:
         deadline = time.monotonic()+90
         while time.monotonic() < deadline:

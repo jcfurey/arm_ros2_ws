@@ -4,8 +4,10 @@ ROS 2 **Lyrical**, **Gazebo Jetty**, and **MoveIt 2** on an Apple Silicon Mac.
 The default environment is Ubuntu 26.04 in a native `linux/arm64` Docker
 container. Gazebo runs **headless**. The desktop **Lichtblick** application
 connects through Foxglove Bridge at **`ws://localhost:8765`**.
-The default robot is a **UFACTORY xArm6**, using the manufacturer's
-meshes, kinematics, inertias, and joint limits. The original primitive arm is
+The default robot is a **UFACTORY xArm6** with the **xArm Gripper** and a
+wrist-mounted **RealSense D435i**, using the manufacturer's meshes,
+kinematics, inertias, and joint limits. An overhead **D455** and two
+**Ouster OS1-64** lidars watch the workcell. The original primitive arm is
 also available.
 
 ## Quick start on this Mac
@@ -25,15 +27,17 @@ make up
 ```
 
 On first startup the container initializes any missing source submodules,
-builds the workspace, and starts Gazebo, the controllers, MoveIt, two Ousters,
-and Foxglove Bridge. The first image and C++ source build take several minutes.
+builds the workspace, and starts Gazebo, the controllers, MoveIt, two Ousters
+at 10 Hz, both cameras, and Foxglove Bridge. The first image and C++ source
+build take several minutes.
 Compilation defaults to one job for this 16 GB Mac; runtime CPU raycasting
 uses two OpenMP threads per process.
 
 In Lichtblick, choose **File → Open connection → Foxglove WebSocket**, enter
 `ws://localhost:8765`, and open the connection. In **Layouts → Import from
 file…**, import [`lichtblick/workcell.json`](lichtblick/workcell.json). It
-includes the scene, both clouds, motion buttons, and motion status.
+includes the scene, both clouds, the wrist and overhead color images, motion,
+pick, and gripper buttons, and motion status.
 
 For a custom **3D** panel, set display frame **`world`** and **Scene → Mesh up
 axis → Z-up**, then reload Lichtblick (Cmd-R) so the mesh loader uses the new
@@ -44,7 +48,16 @@ Y-up rotates each link mesh independently. Enable these topics:
 - `/robot/markers`: xArm6 mesh materials and the Ouster sensor bodies.
 - `/sensor/lidar/ouster_front/points` and `/sensor/lidar/ouster_rear/points`:
   the two independently decoded Ouster point clouds.
-- `/tf` and `/tf_static`: robot and sensor transforms.
+- `/tf` and `/tf_static`: robot and sensor transforms, and `parts/<model>`
+  frames that follow the movable parts in Gazebo.
+
+The cameras publish realsense-ros style topics under `/camera/wrist` and
+`/camera/overhead`: `color/image_raw`, `color/camera_info`,
+`depth/image_rect_raw` (32-bit float metres), `depth/camera_info`, and
+`depth/points`. Each stream has its own optical frame. Gazebo renders a
+camera only while something subscribes to it, so unwatched cameras cost no
+simulation time. The wrist D435i runs at 15 Hz with UFACTORY's camera stand
+and frame names; the overhead D455 runs at 10 Hz from 2.1 m above the bench.
 
 Use `/robot/markers` for the robot visuals; leave the additional
 `/robot_description` display disabled to avoid overlapping copies.
@@ -55,9 +68,13 @@ To use another port, run `FOXGLOVE_PORT=8766 make up` and connect to that port.
 
 For motion, add a **Publish** panel for `/motion/command` with schema
 `std_msgs/msg/String` and publish `{"data":"ready"}`, `{"data":"sweep"}`, or
-`{"data":"home"}`. `{"data":"stop"}` requests cancellation. Watch
-`/motion/status` in a Raw Messages panel for planning, execution, and results.
-Each command goes through MoveIt and its collision scene.
+`{"data":"home"}`. `{"data":"open"}` and `{"data":"close"}` move the gripper.
+`{"data":"pick_cube"}` or `{"data":"pick_cylinder"}` picks that part and sets
+it down at its `<part>_drop` frame, or back at its starting pose if it is
+already there. `{"data":"stop"}` requests cancellation. Watch
+`/motion/status` in a Raw Messages panel for planning, execution, the current
+pick step, and results. Each command goes through MoveIt and its collision
+scene.
 
 ```sh
 make logs       # startup progress and ROS logs; Ctrl-C leaves the service running
@@ -74,6 +91,8 @@ make demo       # use the original primitive arm
 make up         # default headless xArm6 workcell with two Ousters
 make obstacles  # use the obstacle-course world
 make perception # also integrate both point clouds into MoveIt's occupancy map
+ENABLE_CAMERAS=false make up  # no wrist or overhead camera
+ENABLE_GRIPPER=false make up  # bare xArm6 flange, link_eef as the tip
 ```
 
 These commands update the same Compose service, replacing the previous mode.
@@ -91,7 +110,8 @@ set `ROS_IMAGE` to an image digest if you need an immutable base.
 ## Motion test worlds
 
 `workcell` is the default: a metal workbench, rear screen, fixture, and two
-target parts, with the xArm6 mounted on the bench. `obstacle_course` adds a
+free parts to pick (a 40 mm cube and a 40 x 80 mm cylinder), with the xArm6
+mounted on the bench. `obstacle_course` adds a
 blocking post and guard wall. `empty` remains available for isolated robot
 checks:
 
@@ -110,10 +130,29 @@ world markers come from the same SDF source. Mock mode uses the same collision
 scene.
 
 The adapter supports static boxes, cylinders, spheres, and planes. It rejects
-unsupported mesh/heightmap collisions, nested/includes, dynamic bodies, and
-external pose references so an unsupported obstacle cannot silently disappear
-from planning. It is a startup snapshot: moving Gazebo objects interactively
-does not update MoveIt automatically.
+unsupported mesh/heightmap collisions, nested/includes, articulated dynamic
+models, and external pose references so an unsupported obstacle cannot
+silently disappear from planning. Static obstacles are a startup snapshot.
+A non-static model with a single link is a movable part: `gz_relay`
+publishes its Gazebo pose on `/parts/<model>/pose`, and the workcell UI moves
+its MoveIt object to match and broadcasts its TF frame.
+
+A pick is a top-down grasp across two opposite faces, planned and executed
+step by step through MoveIt: open, approach above the part, a Cartesian
+descent, grasp, attach the part to `link_tcp` in the planning scene, lift,
+carry, lower, release, detach, and retreat. Of the two hand yaws that close
+on those faces, only those whose lowered pose has a collision-free IK
+solution are offered to the planner (the wrist camera sticks out 8 cm and
+can meet the fixture on the way down). Only the finger pads may touch a
+free part in MoveIt. The gripper is commanded to the part's width less 8 mm
+and stalls on it at its rated force, as a real xArm Gripper is driven. Once
+it has closed on the part, Gazebo welds the part to the hand
+(`arm_bringup::GraspWeld`) until just before release, as grasp-fix plugins
+do: Bullet touches a flat pad to a curved part at one point per step, and a
+cylinder held by friction alone tipped in the hand and fell from about one
+carry in four. With the weld, parts land within 1-2 mm of their target.
+`weld_grasps:=false` holds parts by contact friction only. If a pick fails
+while holding a part, `open` releases it.
 
 For xArm6, `ready`, `sweep`, and `home` are the free test poses. In
 `obstacle_course`, `blocked` intentionally intersects the red post and planning
@@ -135,12 +174,16 @@ make smoke
 make smoke-obstacles
 make bridge-check
 make registration-check
+make rates-check   # cloud rates, scan completeness, real-time factor
+make pick-check    # picks both parts in the running workcell (moves them)
 ```
 
 The three `smoke` commands start separate, temporary headless stacks with their own ROS
 domain. It checks that both controllers are active and all six joint states
 arrive, asks MoveIt to plan **and execute** `ready`, `sweep` (xArm6), and `home`, and checks the
-measured joint positions. The Gazebo check also requires an advancing `/clock`.
+measured joint positions, and closes and opens the gripper. The Gazebo
+check also requires an advancing `/clock`, and in the workcell it picks the
+cube and checks in Gazebo that it landed upright at its drop frame.
 The test stops its stack when complete. It shares the build volumes with the
 main service, so run builds and smoke checks sequentially.
 
@@ -207,13 +250,20 @@ collision exclusions, joint names, joint limits, controller lists, and IK
 configuration together. `moveit_setup_assistant` is installed in the image.
 Both robots use `world` as the fixed frame, planning group `arm`, and position
 commands through `/arm_controller/follow_joint_trajectory`. The xArm6 uses
-`link_base` as its base, `link_eef` as its tip, and joints `joint1` through
-`joint6`; the primitive arm uses `base_link`, `tool0`, and `joint_1` through
-`joint_6`.
+`link_base` as its base, `link_tcp` as its tip (`link_eef` without the
+gripper), and joints `joint1` through `joint6`; the primitive arm uses
+`base_link`, `tool0`, and `joint_1` through `joint_6`. The xArm6 gripper is
+planning group `gripper` with `open` (85 mm) and `close` states, driven by
+`drive_joint` through `/gripper_controller/gripper_cmd`
+(`parallel_gripper_action_controller`).
 
 The xArm6 wrapper is `arm_description/urdf/xarm6.urdf.xacro`. It loads UFACTORY's
 model with limited joint ranges and selects either `mock_components/GenericSystem`
-or `gz_ros2_control/GazeboSimSystem`. The local MoveIt configuration includes the
+or `gz_ros2_control/GazeboSimSystem`. `xarm_gripper.xacro` adds the gripper
+with box collisions fitted to the finger pads and knuckles, and keeps its
+linkage as URDF mimic joints, which Bullet Featherstone enforces as
+constraints. `cameras.xacro` defines the D435i and D455 sensors.
+The local MoveIt configuration includes the
 manufacturer's arm self-collision exclusions and the `home` and `ready` states.
 Velocity and acceleration limits in our MoveIt configuration are conservative
 simulation settings. The integration check reads named poses from the selected
@@ -257,7 +307,7 @@ restore the commits recorded by the parent repositories; builds do not run
 that command against existing work.
 
 `ouster_front_mount` and `ouster_rear_mount` SDF frames define the fixed sensor
-poses. Both OS1-64s run in CPU `raycast` mode at 3 Hz, with different topic
+poses. Both OS1-64s run in CPU `raycast` mode at 10 Hz, with different topic
 namespaces. Native Ouster packets and metadata feed one `ouster_ros/os_cloud`
 process per sensor, producing standard `PointCloud2` messages. No rendering
 engine, CUDA, or GPU passthrough is needed for raycasting.
@@ -279,13 +329,64 @@ in MoveIt. With perception enabled, `sensors_3d.yaml` adds both clouds to a
 4 cm octomap with robot self-filtering. Restart the stack to clear accumulated
 occupancy after changing world geometry.
 
-This integration is a bare xArm6 for simulation, without a gripper or physical
+This integration simulates the xArm6 and gripper only, without a physical
 robot driver. No robot IP address is used. Physical hardware support requires
 the manufacturer's driver and a hardware-specific configuration.
 
 The launch file starts MoveIt after controller activation; it starts the
 controller spawner after Gazebo creates the robot. Gazebo's plugin owns the
 controller manager in Gazebo mode. Mock mode starts `ros2_control_node` instead.
+
+## Simulation performance
+
+The defaults aim at a native `linux/arm64` container on an M1 Pro, with both
+Ousters at 10 Hz in wall-clock time, not just sim time. Each item below was
+measured to matter:
+
+- **Physics:** Bullet Featherstone at 1 kHz. It enforces the gripper's mimic
+  joints itself; DART cannot, and servoing them through gz_ros2_control cost
+  18% of real time.
+- **Pacing:** worlds set `real_time_factor` 0 and load
+  `arm_bringup::RealtimePacer`, which paces steps against an absolute
+  wall-clock schedule and repays late wake-ups. gz-sim's own throttle
+  re-anchors at every late wake-up and held the container near 0.8.
+- **Clock and part poses:** `gz_relay` republishes Gazebo's 1 kHz clock as
+  `/clock` at 200 Hz (`clock_hz:=`) and part poses at 30 Hz, so ROS nodes do
+  not wake for every physics step.
+- **Ouster raycasting:** the CPU raycaster balances its OpenMP threads over
+  1024-ray rows (`gz_sensors_ouster` branch `perf/cpu-raycast-m1`), with
+  `OMP_NUM_THREADS=2` and `OMP_WAIT_POLICY=PASSIVE` so idle threads sleep
+  instead of spinning against the simulation thread.
+- **Cloud delivery:** a 1024x64 cloud is a 3.1 MB message. Docker Desktop's
+  VM caps socket receive buffers near 208 KB, and a container cannot raise
+  `net.core.rmem_max`, so with default 1.3 KB fragments a best-effort
+  subscriber loses most clouds. `docker/cyclonedds.xml` sends 64 KB
+  fragments and the launch makes lidar packets and clouds reliable; a
+  reliable subscriber receives every scan. Subscribe reliable in your own
+  nodes.
+- **Cameras:** separate color and depth sensors, bridged lazily and rendered
+  only while subscribed.
+- **No per-step extras:** no pose-publisher or altimeter systems, and the
+  workcell UI asks MoveIt for the hand pose instead of decoding `/tf` and
+  `/clock`.
+
+Measured with `make rates-check` on a 4-vCPU x86-64 Linux VM, where the
+workcell steps at only ~1.09x real time flat out. An M1 Pro with Docker
+Desktop allowed more of its cores should do at least as well; run
+`make rates-check` to confirm on yours:
+
+| Configuration                        | Real-time factor | Ouster rate, sim / wall |
+| ------------------------------------ | ---------------- | ----------------------- |
+| Default (cameras present, unwatched) | 0.99-1.01        | 10.0 / 9.9-10.0 Hz      |
+| All four camera streams rendering    | 0.99             | 10.0 / 9.9 Hz           |
+| `ENABLE_CAMERAS=false`               | 1.00             | 10.0 / 10.0 Hz          |
+
+With all camera streams subscribed the wrist camera delivers 15 Hz and the
+overhead camera 10 Hz in sim time.
+
+Every scan is complete (about 12.5k and 11.5k finite returns per sensor in
+the workcell), and both clouds register to the SDF surfaces with a 4 mm
+median error.
 
 ## Native ROS installation
 
@@ -321,8 +422,14 @@ domain `42`, and localhost discovery inside the same container.
   and reload Lichtblick. Keep only one robot visual display enabled.
 - **Missing transforms after switching layouts:** reload Lichtblick (Cmd-R)
   to resubscribe to the latched `/tf_static` transforms.
-- **Slow simulation:** reduce `LIDAR_HZ` or disable Ousters temporarily. Use
-  `CMAKE_BUILD_PARALLEL_LEVEL=1` for builds on this 16 GB Mac.
+- **Slow simulation:** run `make rates-check` for the real-time factor and
+  sensor rates. Close camera views you are not using, or set
+  `ENABLE_CAMERAS=false`; reduce `LIDAR_HZ`; give Docker Desktop more CPUs.
+  Use `CMAKE_BUILD_PARALLEL_LEVEL=1` for builds on this 16 GB Mac.
+- **Clouds arrive below their scan rate or with holes:** check that
+  `CYCLONEDDS_URI` points at `docker/cyclonedds.xml` and that subscribers
+  request reliable QoS (best-effort subscribers lose whole clouds; see
+  Simulation performance).
 - **No simulated motion:** Gazebo must be playing; the launch starts it with
   `-r`. Inspect `ros2 control list_controllers` in `make shell`.
 - **Clean rebuild:** `make down`, then `docker compose down -v` removes the
