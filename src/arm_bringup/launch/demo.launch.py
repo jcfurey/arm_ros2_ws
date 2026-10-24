@@ -234,10 +234,13 @@ def launch_setup(context):
             PythonLaunchDescriptionSource(str(gazebo_dir / "launch" / "gz_sim.launch.py")),
             launch_arguments={"gz_args": gz_args}.items(),
         )
+        # create re-sends its request every 5 s until Gazebo answers, and Gazebo
+        # later receives the unanswered ones too. Renaming stays off (the default)
+        # so it drops those repeats; gflags would read "-allow_renaming false" as
+        # true, which spawned a renamed copy of the robot per retry on slow starts.
         spawn_robot = Node(
             package="ros_gz_sim", executable="create",
-            arguments=["-name", robot, "-param", "robot_description",
-                       "-world", scene.name, "-allow_renaming", "false"],
+            arguments=["-name", robot, "-param", "robot_description", "-world", scene.name],
             parameters=[physics_description],
             output="screen",
         )
