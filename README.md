@@ -384,7 +384,12 @@ measured to matter:
   uses 114%.
 - **Clock and part poses:** `gz_relay` republishes Gazebo's 1 kHz clock as
   `/clock` at 200 Hz (`clock_hz:=`) and part poses at 30 Hz, so ROS nodes do
-  not wake for every physics step.
+  not wake for every physics step. The controller manager is the exception:
+  it times each update by its node clock rather than the simulation time it
+  is given, so on the 200 Hz clock its trajectory samples and joint-state
+  stamps were off by 2.6 ms RMS (single updates by up to 18 ms). It receives
+  every step on `/controller_manager/clock`, which brings that to 1.2 ms
+  with 78% of updates exactly on time, for about 13% of a core.
 - **Ouster raycasting:** the CPU raycaster balances its OpenMP threads over
   1024-ray rows (`gz_sensors_ouster` branch `perf/cpu-raycast-m1`), with
   `OMP_NUM_THREADS=2` and `OMP_WAIT_POLICY=PASSIVE` so idle threads sleep

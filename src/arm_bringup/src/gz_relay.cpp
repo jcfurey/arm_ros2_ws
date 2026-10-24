@@ -5,6 +5,11 @@
 // each one; across a dozen processes that fan-out costs more CPU than the
 // clock is worth and delays the simulation thread's wake-ups. gz-transport's
 // subscriber-side throttle keeps the newest sample at `clock_rate` Hz instead.
+// controller_manager is the exception: it times each update by its node clock
+// rather than the simulation time gz_ros2_control hands it, so at 200 Hz its
+// trajectory samples and joint-state stamps fell up to several milliseconds
+// off the 10 ms updates. It gets every step on /controller_manager/clock,
+// which the robot's gz_ros2_control remaps /clock to.
 //
 // Parts: SceneBroadcaster already publishes every dynamic entity's pose, with
 // names, on /world/<name>/dynamic_pose/info. Reading it here avoids a
@@ -52,16 +57,19 @@ int main(int argc, char ** argv)
   const auto pose_rate = node->declare_parameter<double>("pose_rate", 30.0);
   const auto parts = node->declare_parameter<std::vector<std::string>>("parts", std::vector<std::string>{});
 
-  gz::transport::Node gz_node;
-  auto clock_pub = node->create_publisher<rosgraph_msgs::msg::Clock>("/clock", rclcpp::ClockQoS());
-  std::function<void(const gz::msgs::Clock &)> relay_clock = [clock_pub](const gz::msgs::Clock & clock) {
-      rosgraph_msgs::msg::Clock message;
-      message.clock.sec = static_cast<int32_t>(clock.sim().sec());
-      message.clock.nanosec = static_cast<uint32_t>(clock.sim().nsec());
-      clock_pub->publish(message);
+  gz::transport::Node gz_node, gz_control_clock_node;
+  auto relay_to = [&node](const std::string & topic) {
+      auto publisher = node->create_publisher<rosgraph_msgs::msg::Clock>(topic, rclcpp::ClockQoS());
+      return std::function<void(const gz::msgs::Clock &)>([publisher](const gz::msgs::Clock & clock) {
+          rosgraph_msgs::msg::Clock message;
+          message.clock.sec = static_cast<int32_t>(clock.sim().sec());
+          message.clock.nanosec = static_cast<uint32_t>(clock.sim().nsec());
+          publisher->publish(message);
+        });
     };
   const std::string clock_topic = "/world/" + world + "/clock";
-  if (!gz_node.Subscribe(clock_topic, relay_clock, throttled(clock_rate))) {
+  if (!gz_node.Subscribe(clock_topic, relay_to("/clock"), throttled(clock_rate)) ||
+      !gz_control_clock_node.Subscribe(clock_topic, relay_to("/controller_manager/clock"))) {
     RCLCPP_FATAL(node->get_logger(), "Cannot subscribe to Gazebo topic %s", clock_topic.c_str());
     rclcpp::shutdown();
     return 1;

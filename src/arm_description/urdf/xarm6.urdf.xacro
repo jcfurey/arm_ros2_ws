@@ -92,6 +92,9 @@
     <gazebo>
       <plugin filename="libgz_ros2_control-system.so" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
         <parameters>$(arg controllers_file)</parameters>
+        <!-- controller_manager times each update by its node clock, not by the
+             simulation time it is given; gz_relay sends it every step. -->
+        <ros><remapping>/clock:=/controller_manager/clock</remapping></ros>
       </plugin>
     </gazebo>
   </xacro:if>
