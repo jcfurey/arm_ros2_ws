@@ -10,6 +10,13 @@ also available.
 
 ## Quick start on this Mac
 
+Clone the workspace with its registered dependencies:
+
+```sh
+git clone --recurse-submodules https://github.com/jcfurey/arm_ros2_ws.git
+cd arm_ros2_ws
+```
+
 Install/start Docker Desktop, then run from this repository:
 
 ```sh
@@ -17,7 +24,7 @@ make image
 make up
 ```
 
-On first startup the container fetches the pinned robot and Ouster sources,
+On first startup the container initializes any missing source submodules,
 builds the workspace, and starts Gazebo, the controllers, MoveIt, two Ousters,
 and Foxglove Bridge. The first image and C++ source build take several minutes.
 Compilation defaults to one job for this 16 GB Mac; runtime CPU raycasting
@@ -116,6 +123,12 @@ blocked goal without executing it.
 
 ## Verify planning and execution
 
+The bootstrap preservation tests use disposable local Git repositories:
+
+```sh
+python3 -m unittest discover -s scripts -p test_bootstrap.py -v
+```
+
 ```sh
 make smoke-mock
 make smoke
@@ -159,10 +172,10 @@ src/
   arm_description/     # URDF/xacro, inertias, limits, mock/Gazebo interfaces
   arm_moveit_config/   # SRDF, KDL IK, OMPL, controllers; xArm6 config in config/xarm6/
   arm_bringup/         # launch, SDF worlds, scene synchronization, integration check
-  external/xarm_ros2/  # ignored sparse checkout: official xarm_description only
+  external/xarm_ros2/  # Git submodule; sparse checkout of xarm_description
   external/gz_sensors_ouster/  # cam_wip + ouster_sim_core submodule
   external/ouster-ros/        # matching pinned driver + ouster-sdk submodule
-dependencies/         # pinned upstream URL and revision
+.gitmodules           # upstream URLs and tracking branches; Git records revisions
 third_party/          # UFACTORY attribution and license
 docker/               # ROS environment setup
 scripts/              # bootstrap, build, demo, and smoke-test entry points
@@ -206,19 +219,42 @@ Velocity and acceleration limits in our MoveIt configuration are conservative
 simulation settings. The integration check reads named poses from the selected
 SRDF, so it uses the same targets as the desktop motion-command interface.
 
-`scripts/bootstrap.py` fetches the exact upstream revision in
-`dependencies/xarm.json` (from UFACTORY's Jazzy branch). Only the description
-package is checked out; it is compiled locally against Lyrical. `colcon.meta`
-sets the CMake compatibility option required by that upstream package's older
-CMake declaration. The bootstrap checks the revision and refuses to replace
-local modifications. Builds after the initial fetch work offline.
+`scripts/bootstrap.py` initializes only missing submodules and their missing
+nested dependencies. Existing branches, commits, and uncommitted changes are
+preserved, even when they differ from the workspace's recorded revisions.
+It does not fetch updates or run a recursive checkout over existing work.
+Builds after initialization work offline.
+
+The UFACTORY submodule tracks Jazzy. Bootstrap configures a sparse checkout
+of `xarm_description` if no sparse selection exists; `colcon.meta` supplies
+that package's older CMake compatibility setting. Recursive clones also
+initialize the manufacturer's C++ hardware SDK, which `build.sh` excludes
+from simulation builds.
 
 ## Two Ouster viewpoints
 
-The source pins are in `dependencies/ouster.json`: `gz_sensors_ouster` is on
-the requested `cam_wip` revision, with its `ouster_sim_core` submodule and the
-matching `ouster-ros`/SDK revision. Checkouts live under `src/external` and keep
-their own Git histories. The bootstrap preserves edits to the Ouster sources.
+The three repositories under `src/external` are registered Git submodules.
+`gz_sensors_ouster` tracks `cam_wip` and includes its `ouster_sim_core`
+submodule; `ouster-ros` includes the Ouster SDK. The workspace's Git links
+record the integrated commits, and `.gitmodules` records their source URLs.
+
+Develop directly in the Ouster checkouts. A normal recursive clone starts
+submodules on detached HEADs; create a work branch before making commits:
+
+```sh
+git -C src/external/gz_sensors_ouster switch -c my-sensor-change
+git -C src/external/gz_sensors_ouster/third_party/ouster_sim_core switch -c my-core-change
+make build
+```
+
+Existing local branches, including your current `cam_wip` and core `main`,
+are left as they are. Commit and push changes in each edited repository
+first. For core changes, also commit and push the updated core Git link in
+`gz_sensors_ouster`. Finally, commit the updated Git links in this workspace.
+Use `git submodule status --recursive` to inspect the recorded checkouts.
+Run `git submodule update --init --recursive` deliberately when you want to
+restore the commits recorded by the parent repositories; builds do not run
+that command against existing work.
 
 `ouster_front_mount` and `ouster_rear_mount` SDF frames define the fixed sensor
 poses. Both OS1-64s run in CPU `raycast` mode at 3 Hz, with different topic

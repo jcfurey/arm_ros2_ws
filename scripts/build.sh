@@ -6,4 +6,5 @@ if ! command -v colcon >/dev/null; then
     exit 1
 fi
 python3 scripts/bootstrap.py
-colcon build --symlink-install --event-handlers console_direct+ "$@"
+# Recursive clones include the hardware SDK; the simulated arm does not use it.
+colcon build --symlink-install --event-handlers console_direct+ --packages-ignore xarm_cplus_sdk "$@"
