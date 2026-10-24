@@ -275,7 +275,7 @@ preserved, even when they differ from the workspace's recorded revisions.
 It does not fetch updates or run a recursive checkout over existing work.
 Builds after initialization work offline.
 
-The UFACTORY submodule tracks Jazzy. Bootstrap configures a sparse checkout
+The UFACTORY submodule tracks `rolling`. Bootstrap configures a sparse checkout
 of `xarm_description` if no sparse selection exists; `colcon.meta` supplies
 that package's older CMake compatibility setting. Recursive clones also
 initialize the manufacturer's C++ hardware SDK, which `build.sh` excludes
@@ -442,7 +442,7 @@ domain `42`, and localhost discovery inside the same container.
 - [MoveIt 2 binary installation](https://moveit.ai/install-moveit2/binary/)
 - [Lyrical gz_ros2_control integration](https://control.ros.org/lyrical/doc/gz_ros2_control/doc/index.html)
 - [UFACTORY xArm ROS 2 repository](https://github.com/xArm-Developer/xarm_ros2)
-- [Pinned xArm model revision](https://github.com/xArm-Developer/xarm_ros2/tree/d837f2e17f7f36043103b367fca3af8172626245)
+- [Pinned xArm model revision](https://github.com/xArm-Developer/xarm_ros2/tree/6d53d8b2eac2c630002ecad18fd5bc7c967a8b34)
 - [Ouster simulation cam_wip branch](https://github.com/jcfurey/gz_sensors_ouster/tree/cam_wip)
 - [Lichtblick live data connections](https://lichtblick-suite.github.io/docs/docs/connecting-to-data/live-data/)
 - [Foxglove ROS bridge](https://github.com/foxglove/foxglove-sdk/tree/main/ros/src/foxglove_bridge)

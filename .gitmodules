@@ -1,7 +1,7 @@
 [submodule "src/external/xarm_ros2"]
 	path = src/external/xarm_ros2
 	url = https://github.com/xArm-Developer/xarm_ros2.git
-	branch = jazzy
+	branch = rolling
 [submodule "src/external/gz_sensors_ouster"]
 	path = src/external/gz_sensors_ouster
 	url = https://github.com/jcfurey/gz_sensors_ouster.git
