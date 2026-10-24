@@ -370,23 +370,44 @@ measured to matter:
   workcell UI asks MoveIt for the hand pose instead of decoding `/tf` and
   `/clock`.
 
-Measured with `make rates-check` on a 4-vCPU x86-64 Linux VM, where the
-workcell steps at only ~1.09x real time flat out. An M1 Pro with Docker
-Desktop allowed more of its cores should do at least as well; run
-`make rates-check` to confirm on yours:
+Measured on this M1 Pro with Docker Desktop (8 vCPUs, 8 GiB VM memory),
+the default camera resolutions/rates, and software OpenGL rendering:
 
 | Configuration                        | Real-time factor | Ouster rate, sim / wall |
 | ------------------------------------ | ---------------- | ----------------------- |
-| Default (cameras present, unwatched) | 0.99-1.01        | 10.0 / 9.9-10.0 Hz      |
-| All four camera streams rendering    | 0.99             | 10.0 / 9.9 Hz           |
-| `ENABLE_CAMERAS=false`               | 1.00             | 10.0 / 10.0 Hz          |
+| Default (cameras present, unwatched) | 1.00             | 10.0 / 10.0 Hz          |
+| Both color images subscribed         | ~0.25            | ~9.5-9.7 / 2.3-2.4 Hz  |
+| All four color/depth images subscribed | ~0.23-0.27     | ~9.7-10.1 / 2.2-2.8 Hz |
 
-With all camera streams subscribed the wrist camera delivers 15 Hz and the
-overhead camera 10 Hz in sim time.
+The camera runs used 10-20 second measurement windows after a 5 second
+warmup; the two rendering cases vary with scheduling and load. Camera
+rendering is the limiting workload on this host. The wrist and overhead
+cameras continue at about 15 and 10 Hz in simulation time, respectively,
+while their wall-clock rates fall with the real-time factor.
 
-Every scan is complete (about 12.5k and 11.5k finite returns per sensor in
-the workcell), and both clouds register to the SDF surfaces with a 4 mm
-median error.
+`check_rates.py --cameras` subscribes to actual images to exercise rendering.
+Gazebo can publish `CameraInfo` without producing image pixels, so measuring
+metadata alone does not establish rendering performance. The checker also
+accepts the old RealSense-style CameraInfo arguments and maps them to images.
+For example, this measures all four streams and requires real-time Ousters:
+
+```sh
+docker compose exec --user ros dev /usr/local/bin/ros-shell.sh \
+  python3 scripts/check_rates.py --min-hz 10 --min-rtf 0.97 --cameras \
+  /camera/wrist/color/image_raw /camera/wrist/depth/image_rect_raw \
+  /camera/overhead/color/image_raw /camera/overhead/depth/image_rect_raw
+```
+
+Disconnect image viewers to recover real-time operation, or reduce the
+camera rates/resolutions when editing the camera configuration. The camera
+panels and depth processing share this rendering cost. See Gazebo's
+[color](https://github.com/gazebosim/gz-sensors/blob/main/src/CameraSensor.cc)
+and [depth](https://github.com/gazebosim/gz-sensors/blob/main/src/DepthCameraSensor.cc)
+sensor implementations for the separate image and metadata update paths.
+
+With images unwatched, the workcell scans contained about 12.5k and 11.5k
+finite returns per sensor, and both clouds registered to the SDF surfaces
+with a 4 mm median error.
 
 ## Native ROS installation
 

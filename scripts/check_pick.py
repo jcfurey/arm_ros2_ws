@@ -51,6 +51,9 @@ def main():
         # Same rule as workcell_ui: a part at its SDF pose goes to its drop
         # frame, and anywhere else goes back home.
         target = drop if math.dist((start.x, start.y), home) < 0.03 else home
+        # A transient status may describe the previous run of this same pick.
+        # Wait for a new status after publishing instead of accepting that result.
+        status.clear()
         command.publish(String(data=args.part))
         until(lambda: status.get("pose") == args.part, 10, "the pick to start")
         steps = []

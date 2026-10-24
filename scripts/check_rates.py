@@ -8,9 +8,20 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from rosgraph_msgs.msg import Clock
-from sensor_msgs.msg import CameraInfo, PointCloud2
+from sensor_msgs.msg import Image, PointCloud2
 
 CLOUDS = ["/sensor/lidar/ouster_front/points", "/sensor/lidar/ouster_rear/points"]
+
+
+def camera_image_topic(topic):
+    """Accept the old RealSense CameraInfo arguments, but exercise rendering."""
+    for stream, image in [("color", "image_raw"), ("depth", "image_rect_raw")]:
+        suffix = f"/{stream}/camera_info"
+        if topic.endswith(suffix):
+            return topic[:-len(suffix)] + f"/{stream}/{image}"
+    if topic.endswith("/camera_info"):
+        raise ValueError(f"Specify the Image topic corresponding to {topic}")
+    return topic
 
 
 def stamp_ns(message):
@@ -27,7 +38,9 @@ class RateProbe(Node):
             self.create_subscription(PointCloud2, topic, lambda m, t=topic: self.on_cloud(t, m),
                                      QoSProfile(depth=2, reliability=ReliabilityPolicy.RELIABLE))
         for topic in cameras:
-            self.create_subscription(CameraInfo, topic, lambda m, t=topic: self.on_stamp(t, m),
+            # CameraInfo alone does not cause Gazebo to render an image. Keep
+            # real image subscriptions alive for the entire measurement window.
+            self.create_subscription(Image, topic, lambda m, t=topic: self.on_stamp(t, m),
                                      qos_profile_sensor_data)
         self.create_subscription(Clock, "/clock", self.on_clock, qos_profile_sensor_data)
 
@@ -65,10 +78,15 @@ def main():
                              "(within 1%%: a window that cuts a scan short reads as 9.97 Hz).")
     parser.add_argument("--min-rtf", type=float, default=0.0, help="Fail below this real-time factor.")
     parser.add_argument("--cameras", nargs="*", default=[],
-                        help="CameraInfo topics to measure as well (subscribing starts lazy cameras).")
+                        help="Image topics to render and measure. RealSense color/depth CameraInfo "
+                             "arguments also work and select their corresponding Image topics.")
     args = parser.parse_args()
+    try:
+        cameras = list(dict.fromkeys(camera_image_topic(topic) for topic in args.cameras))
+    except ValueError as error:
+        parser.error(str(error))
     rclpy.init()
-    node = RateProbe(CLOUDS, args.cameras)
+    node = RateProbe(CLOUDS, cameras)
     try:
         end = time.monotonic() + args.warmup
         while time.monotonic() < end:
@@ -83,6 +101,8 @@ def main():
         rtf = (node.clock[-1][1] - node.clock[0][1]) / 1e9 / (node.clock[-1][0] - node.clock[0][0]) \
             if len(node.clock) > 2 else 0.0
         print(f"real-time factor: {rtf:.3f}  (/clock {wall:.0f} msgs/s)", flush=True)
+        if len(node.clock) < 3 or node.clock[-1][1] <= node.clock[0][1]:
+            failures.append("no advancing /clock stream")
         if rtf < args.min_rtf:
             failures.append(f"real-time factor {rtf:.3f} < {args.min_rtf}")
         for topic, samples in node.samples.items():
@@ -92,6 +112,8 @@ def main():
                 sizes = node.points[topic]
                 extra = f"  finite returns/scan min={min(sizes)} median={int(np.median(sizes))} max={max(sizes)}"
             print(f"{topic}: {wall:.2f} Hz wall, {sim:.2f} Hz sim, {len(samples)} msgs{extra}", flush=True)
+            if len(samples) < 3:
+                failures.append(f"{topic} did not deliver enough messages")
             if topic in CLOUDS and min(wall, sim) < 0.99 * args.min_hz:
                 failures.append(f"{topic} below {args.min_hz} Hz")
         if failures:
