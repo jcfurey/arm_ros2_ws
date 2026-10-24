@@ -1,6 +1,11 @@
 <?xml version="1.0"?>
-<sdf version="1.10">
+<sdf version="1.10" xmlns:gz="http://gazebosim.org/schema">
   <world name="arm_world">
+    <!-- Run PostUpdate systems in turn on the simulation thread. In parallel
+         (the default) each has a thread woken every 1 ms step, which cost more
+         than their work: 17% of a core, and 0.73 vs 0.80 real-time factor with
+         all four camera streams. -->
+    <gz:policies><parallel_postupdates>false</parallel_postupdates></gz:policies>
     <frame name="robot_mount" attached_to="world"><pose>0 0 0.005 0 0 0</pose></frame>
     <frame name="ouster_front_mount" attached_to="world"><pose>1.35 -1.1 1.85 0 0.5 2.5</pose></frame>
     <frame name="ouster_rear_mount" attached_to="world"><pose>-1.25 1.15 2.15 0 0.65 -0.7</pose></frame>

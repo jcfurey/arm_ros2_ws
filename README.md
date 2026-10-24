@@ -376,6 +376,12 @@ measured to matter:
   `arm_bringup::RealtimePacer`, which paces steps against an absolute
   wall-clock schedule and repays late wake-ups. gz-sim's own throttle
   re-anchors at every late wake-up and held the container near 0.8.
+- **PostUpdate systems in turn:** worlds set the `gz:policies`
+  `parallel_postupdates` policy to false. By default gz-sim gives each system
+  with a PostUpdate phase (sensors, controllers, scene broadcaster) its own
+  thread and wakes them all every 1 ms step, and the wake-ups cost more than
+  the systems' work: Gazebo used 130% of a core at real time where it now
+  uses 114%.
 - **Clock and part poses:** `gz_relay` republishes Gazebo's 1 kHz clock as
   `/clock` at 200 Hz (`clock_hz:=`) and part poses at 30 Hz, so ROS nodes do
   not wake for every physics step.
@@ -422,6 +428,7 @@ four images subscribed), each change's effect with all four images:
 | No MSAA on color images                               | 0.67             |
 | Overhead camera at 15 Hz, in step with the wrist      | 0.83             |
 | Final: also RealSense depth and reduced meshes        | 0.76-0.78        |
+| PostUpdate systems in turn (0.72-0.75 just before)    | 0.77-0.80        |
 
 Back-to-back runs of one configuration differ by up to 0.04. In the final
 configuration the ideal depth (`depth/image_meters`) measured 0.79-0.83, so
