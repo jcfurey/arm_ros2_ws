@@ -164,6 +164,11 @@ def launch_setup(context):
             package="foxglove_bridge", executable="foxglove_bridge", name="foxglove_bridge",
             parameters=[common, {
                 "address": "0.0.0.0", "port": 8765,
+                # One executor thread: the default of one per core woke every
+                # thread on each /clock message, about 15% of a core idle
+                # against 6%, and one thread keeps up with both clouds and
+                # cameras.
+                "num_threads": 1,
                 "asset_uri_allowlist": [pattern for package in MESH_PACKAGES for pattern in [
                     f"^package://{package}{meshes}",
                     "^file://" + re.escape(get_package_share_directory(package)) + meshes]],

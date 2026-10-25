@@ -2,8 +2,9 @@
 
 ROS 2 **Lyrical**, **Gazebo Jetty**, and **MoveIt 2** on an Apple Silicon Mac.
 The default environment is Ubuntu 26.04 in a native `linux/arm64` Docker
-container. Gazebo runs **headless**. The desktop **Lichtblick** application
-connects through Foxglove Bridge at **`ws://localhost:8765`**.
+container. Gazebo runs **headless**. **Lichtblick** connects through Foxglove
+Bridge at **`ws://localhost:8765`**, from the web build that the stack serves
+at **`http://localhost:8080`** or from the desktop application.
 The default robot is a **UFACTORY xArm6** with the **xArm Gripper** and a
 wrist-mounted **RealSense D435i**, using the manufacturer's meshes,
 kinematics, inertias, and joint limits. An overhead **D455** and two
@@ -28,16 +29,30 @@ make up
 
 On first startup the container initializes any missing source submodules,
 builds the workspace, and starts Gazebo, the controllers, MoveIt, two Ousters
-at 10 Hz, both cameras, and Foxglove Bridge. The first image and C++ source
-build take several minutes.
+at 10 Hz, both cameras, Foxglove Bridge, and Lichtblick. The first image and
+C++ source build take several minutes.
 Compilation defaults to one job for this 16 GB Mac; runtime CPU raycasting
 uses two OpenMP threads per process.
 
-In Lichtblick, choose **File → Open connection → Foxglove WebSocket**, enter
-`ws://localhost:8765`, and open the connection. In **Layouts → Import from
-file…**, import [`lichtblick/workcell.json`](lichtblick/workcell.json). It
-includes the scene, both clouds, the wrist and overhead color images, motion,
-pick, and gripper buttons, and motion status.
+Run `make lichtblick` to open Lichtblick in your browser, connected to the
+bridge, with [`lichtblick/workcell.json`](lichtblick/workcell.json) as its
+layout. The stack serves Lichtblick 1.30.0's web build at
+`http://localhost:8080` (`LICHTBLICK_PORT`). The link loads the current
+`workcell.json` each time and replaces the browser's layout named
+`workcell`, so save changes you want to keep under another name. In the
+desktop application (1.22 or newer), choose **File → Open connection →
+Foxglove WebSocket**, enter `ws://localhost:8765`, and import the layout in
+**Layouts → Import from file…**. The layout has three tabs:
+
+- **Workcell:** the scene, both clouds, motion, pick, and gripper buttons,
+  and motion status.
+- **Cameras:** color and depth from the wrist and overhead cameras.
+- **Plots:** the arm's joint positions and tracking error, and the wrist IMU
+  with `WRIST_IMU=true`.
+
+Only the open tab subscribes, and Gazebo renders a camera only while
+something subscribes to it, so the Cameras tab is the one that costs
+simulation time (see Simulation performance).
 
 For a custom **3D** panel, set display frame **`world`** and **Scene → Mesh up
 axis → Z-up**, then reload Lichtblick (Cmd-R) so the mesh loader uses the new
@@ -443,6 +458,10 @@ measured to matter:
 - **No per-step extras:** no pose-publisher or altimeter systems, and the
   workcell UI asks MoveIt for the hand pose instead of decoding `/tf` and
   `/clock`.
+- **Foxglove Bridge:** one executor thread (`num_threads: 1`). Its default
+  of one thread per core woke every thread on each `/clock` message: about
+  15% of a core with no client against 6% now, and 32% against 24% while
+  streaming both clouds and both color images, all at their full rates.
 
 Before the camera changes below, measured on this M1 Pro with Docker Desktop
 (8 vCPUs, 8 GiB VM memory) and software OpenGL rendering:
@@ -491,8 +510,9 @@ docker compose exec --user ros dev /usr/local/bin/ros-shell.sh \
   /camera/overhead/color/image_raw /camera/overhead/depth/image_rect_raw
 ```
 
-Disconnect image viewers to recover real-time operation, or reduce the
-camera rates/resolutions when editing the camera configuration. The camera
+Disconnect image viewers to recover real-time operation (in the workcell
+layout, leave the Cameras tab), or reduce the camera rates/resolutions when
+editing the camera configuration. The camera
 panels and depth processing share this rendering cost. See Gazebo's
 [color](https://github.com/gazebosim/gz-sensors/blob/main/src/CameraSensor.cc)
 and [depth](https://github.com/gazebosim/gz-sensors/blob/main/src/DepthCameraSensor.cc)
@@ -529,7 +549,17 @@ domain `42`, and localhost discovery inside the same container.
 
 - **Docker connection error:** start Docker Desktop and wait for its engine.
 - **Lichtblick cannot connect:** inspect `make logs`, confirm Foxglove Bridge
-  is listening, and check `FOXGLOVE_PORT` against the desktop connection URL.
+  is listening, and check `FOXGLOVE_PORT` against the connection URL. The
+  bridge accepts only the `foxglove.sdk.v1` WebSocket subprotocol, which
+  Lichtblick offers from 1.22; older releases report "Connection failed".
+- **Lichtblick alerts:** three "Definition of schema … has changed" errors
+  (`visualization_msgs/Marker`, `sensor_msgs/PointField`,
+  `lifecycle_msgs/msg/TransitionEvent`) are expected. Lichtblick preloads
+  ROS 2 Humble's message definitions, and Lyrical's differ; panels still
+  decode messages with the bridge's definitions. "High frequency topics"
+  refers to `/tf` and the plotted controller state at 100 Hz. "Transform
+  topics detected" suggests preloading transforms, which a live connection
+  does not need.
 - **Meshes missing:** the 3D panel needs the bridge's asset capability; use
   `make bridge-check` to test mesh retrieval and streamed ROS data.
 - **Arm meshes look disconnected:** set **3D → Scene → Mesh up axis → Z-up**
@@ -559,4 +589,5 @@ domain `42`, and localhost discovery inside the same container.
 - [Pinned xArm model revision](https://github.com/xArm-Developer/xarm_ros2/tree/6d53d8b2eac2c630002ecad18fd5bc7c967a8b34)
 - [Ouster simulation cam_wip branch](https://github.com/jcfurey/gz_sensors_ouster/tree/cam_wip)
 - [Lichtblick live data connections](https://lichtblick-suite.github.io/docs/docs/connecting-to-data/live-data/)
+- [Lichtblick releases and container image](https://github.com/lichtblick-suite/lichtblick/releases)
 - [Foxglove ROS bridge](https://github.com/foxglove/foxglove-sdk/tree/main/ros/src/foxglove_bridge)

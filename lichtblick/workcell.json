@@ -55,7 +55,8 @@
         "meshUpAxis": "z_up",
         "transforms": {
           "showLabel": false,
-          "axisScale": 0.2
+          "axisScale": 0.1,
+          "lineWidth": 0
         }
       },
       "transforms": {},
@@ -94,8 +95,88 @@
         "poseEstimateThetaDeviation": 0.26179939
       },
       "imageMode": {},
-      "title": "xArm6 workcell",
-      "followTf": "world"
+      "followTf": "world",
+      "lichtblickPanelTitle": "Workcell"
+    },
+    "Publish!ready": {
+      "topicName": "/motion/command",
+      "datatype": "std_msgs/msg/String",
+      "buttonText": "Ready",
+      "buttonTooltip": "MoveIt named pose: ready",
+      "buttonColor": "#2e7d32",
+      "advancedView": false,
+      "value": "{\"data\": \"ready\"}",
+      "lichtblickPanelTitle": "Pose"
+    },
+    "Publish!sweep": {
+      "topicName": "/motion/command",
+      "datatype": "std_msgs/msg/String",
+      "buttonText": "Sweep",
+      "buttonTooltip": "MoveIt named pose: sweep",
+      "buttonColor": "#1565c0",
+      "advancedView": false,
+      "value": "{\"data\": \"sweep\"}",
+      "lichtblickPanelTitle": "Pose"
+    },
+    "Publish!home": {
+      "topicName": "/motion/command",
+      "datatype": "std_msgs/msg/String",
+      "buttonText": "Home",
+      "buttonTooltip": "MoveIt named pose: home",
+      "buttonColor": "#5e35b1",
+      "advancedView": false,
+      "value": "{\"data\": \"home\"}",
+      "lichtblickPanelTitle": "Pose"
+    },
+    "Publish!stop": {
+      "topicName": "/motion/command",
+      "datatype": "std_msgs/msg/String",
+      "buttonText": "Stop",
+      "buttonTooltip": "Cancel the active motion goal",
+      "buttonColor": "#c62828",
+      "advancedView": false,
+      "value": "{\"data\": \"stop\"}",
+      "lichtblickPanelTitle": "Stop"
+    },
+    "Publish!pick_cube": {
+      "topicName": "/motion/command",
+      "datatype": "std_msgs/msg/String",
+      "buttonText": "Pick cube",
+      "buttonTooltip": "Pick the cube and set it at its drop frame, or back home",
+      "buttonColor": "#ef6c00",
+      "advancedView": false,
+      "value": "{\"data\": \"pick_cube\"}",
+      "lichtblickPanelTitle": "Pick"
+    },
+    "Publish!pick_cylinder": {
+      "topicName": "/motion/command",
+      "datatype": "std_msgs/msg/String",
+      "buttonText": "Pick cylinder",
+      "buttonTooltip": "Pick the cylinder and set it at its drop frame, or back home",
+      "buttonColor": "#f9a825",
+      "advancedView": false,
+      "value": "{\"data\": \"pick_cylinder\"}",
+      "lichtblickPanelTitle": "Pick"
+    },
+    "Publish!open": {
+      "topicName": "/motion/command",
+      "datatype": "std_msgs/msg/String",
+      "buttonText": "Open",
+      "buttonTooltip": "Open the gripper (releases a part a failed pick left in the hand)",
+      "buttonColor": "#00838f",
+      "advancedView": false,
+      "value": "{\"data\": \"open\"}",
+      "lichtblickPanelTitle": "Hand"
+    },
+    "Publish!close": {
+      "topicName": "/motion/command",
+      "datatype": "std_msgs/msg/String",
+      "buttonText": "Close",
+      "buttonTooltip": "Close the gripper",
+      "buttonColor": "#455a64",
+      "advancedView": false,
+      "value": "{\"data\": \"close\"}",
+      "lichtblickPanelTitle": "Hand"
     },
     "RawMessagesVirtual!os6rgs": {
       "diffEnabled": false,
@@ -103,90 +184,10 @@
       "diffTopicPath": "",
       "showFullMessageForDiff": false,
       "topicPath": "/motion/status",
-      "title": "Motion status"
-    },
-    "Publish!ready": {
-      "title": "Ready",
-      "topicName": "/motion/command",
-      "datatype": "std_msgs/msg/String",
-      "buttonText": "Ready",
-      "buttonTooltip": "MoveIt named pose: ready",
-      "buttonColor": "#2e7d32",
-      "advancedView": false,
-      "value": "{\"data\": \"ready\"}"
-    },
-    "Publish!sweep": {
-      "title": "Sweep",
-      "topicName": "/motion/command",
-      "datatype": "std_msgs/msg/String",
-      "buttonText": "Sweep",
-      "buttonTooltip": "MoveIt named pose: sweep",
-      "buttonColor": "#1565c0",
-      "advancedView": false,
-      "value": "{\"data\": \"sweep\"}"
-    },
-    "Publish!home": {
-      "title": "Home",
-      "topicName": "/motion/command",
-      "datatype": "std_msgs/msg/String",
-      "buttonText": "Home",
-      "buttonTooltip": "MoveIt named pose: home",
-      "buttonColor": "#5e35b1",
-      "advancedView": false,
-      "value": "{\"data\": \"home\"}"
-    },
-    "Publish!stop": {
-      "title": "Stop",
-      "topicName": "/motion/command",
-      "datatype": "std_msgs/msg/String",
-      "buttonText": "Stop",
-      "buttonTooltip": "Cancel the active motion goal",
-      "buttonColor": "#c62828",
-      "advancedView": false,
-      "value": "{\"data\": \"stop\"}"
-    },
-    "Publish!pick_cube": {
-      "title": "Pick cube",
-      "topicName": "/motion/command",
-      "datatype": "std_msgs/msg/String",
-      "buttonText": "Pick cube",
-      "buttonTooltip": "Pick the cube and set it at its drop frame, or back home",
-      "buttonColor": "#ef6c00",
-      "advancedView": false,
-      "value": "{\"data\": \"pick_cube\"}"
-    },
-    "Publish!pick_cylinder": {
-      "title": "Pick cylinder",
-      "topicName": "/motion/command",
-      "datatype": "std_msgs/msg/String",
-      "buttonText": "Pick cylinder",
-      "buttonTooltip": "Pick the cylinder and set it at its drop frame, or back home",
-      "buttonColor": "#f9a825",
-      "advancedView": false,
-      "value": "{\"data\": \"pick_cylinder\"}"
-    },
-    "Publish!open": {
-      "title": "Open",
-      "topicName": "/motion/command",
-      "datatype": "std_msgs/msg/String",
-      "buttonText": "Open",
-      "buttonTooltip": "Open the gripper (releases a part a failed pick left in the hand)",
-      "buttonColor": "#00838f",
-      "advancedView": false,
-      "value": "{\"data\": \"open\"}"
-    },
-    "Publish!close": {
-      "title": "Close",
-      "topicName": "/motion/command",
-      "datatype": "std_msgs/msg/String",
-      "buttonText": "Close",
-      "buttonTooltip": "Close the gripper",
-      "buttonColor": "#455a64",
-      "advancedView": false,
-      "value": "{\"data\": \"close\"}"
+      "lichtblickPanelTitle": "Motion status"
     },
     "Image!wrist": {
-      "title": "Wrist camera (D435i)",
+      "lichtblickPanelTitle": "Wrist color (D435i)",
       "imageMode": {
         "imageTopic": "/camera/wrist/color/image_raw"
       },
@@ -198,8 +199,25 @@
       "layers": {},
       "publish": {}
     },
+    "Image!wrist_depth": {
+      "lichtblickPanelTitle": "Wrist depth (D435i, 0.1-1.5 m)",
+      "imageMode": {
+        "imageTopic": "/camera/wrist/depth/image_rect_raw",
+        "colorMode": "colormap",
+        "colorMap": "turbo",
+        "minValue": 100,
+        "maxValue": 1500
+      },
+      "cameraState": {},
+      "followMode": "follow-pose",
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "publish": {}
+    },
     "Image!overhead": {
-      "title": "Overhead camera (D455)",
+      "lichtblickPanelTitle": "Overhead color (D455)",
       "imageMode": {
         "imageTopic": "/camera/overhead/color/image_raw"
       },
@@ -210,6 +228,269 @@
       "topics": {},
       "layers": {},
       "publish": {}
+    },
+    "Image!overhead_depth": {
+      "lichtblickPanelTitle": "Overhead depth (D455, 0.5-2.5 m)",
+      "imageMode": {
+        "imageTopic": "/camera/overhead/depth/image_rect_raw",
+        "colorMode": "colormap",
+        "colorMap": "turbo",
+        "minValue": 500,
+        "maxValue": 2500
+      },
+      "cameraState": {},
+      "followMode": "follow-pose",
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "publish": {}
+    },
+    "Plot!arm_positions": {
+      "lichtblickPanelTitle": "Arm joint positions (rad)",
+      "paths": [
+        {
+          "value": "/arm_controller/controller_state.feedback.positions[0]",
+          "enabled": true,
+          "timestampMethod": "headerStamp",
+          "label": "joint1"
+        },
+        {
+          "value": "/arm_controller/controller_state.feedback.positions[1]",
+          "enabled": true,
+          "timestampMethod": "headerStamp",
+          "label": "joint2"
+        },
+        {
+          "value": "/arm_controller/controller_state.feedback.positions[2]",
+          "enabled": true,
+          "timestampMethod": "headerStamp",
+          "label": "joint3"
+        },
+        {
+          "value": "/arm_controller/controller_state.feedback.positions[3]",
+          "enabled": true,
+          "timestampMethod": "headerStamp",
+          "label": "joint4"
+        },
+        {
+          "value": "/arm_controller/controller_state.feedback.positions[4]",
+          "enabled": true,
+          "timestampMethod": "headerStamp",
+          "label": "joint5"
+        },
+        {
+          "value": "/arm_controller/controller_state.feedback.positions[5]",
+          "enabled": true,
+          "timestampMethod": "headerStamp",
+          "label": "joint6"
+        }
+      ],
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "showLegend": true,
+      "legendDisplay": "floating",
+      "showPlotValuesInLegend": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "sidebarDimension": 240,
+      "followingViewWidth": 30
+    },
+    "Plot!arm_error": {
+      "lichtblickPanelTitle": "Arm tracking error (rad)",
+      "paths": [
+        {
+          "value": "/arm_controller/controller_state.error.positions[0]",
+          "enabled": true,
+          "timestampMethod": "headerStamp",
+          "label": "joint1"
+        },
+        {
+          "value": "/arm_controller/controller_state.error.positions[1]",
+          "enabled": true,
+          "timestampMethod": "headerStamp",
+          "label": "joint2"
+        },
+        {
+          "value": "/arm_controller/controller_state.error.positions[2]",
+          "enabled": true,
+          "timestampMethod": "headerStamp",
+          "label": "joint3"
+        },
+        {
+          "value": "/arm_controller/controller_state.error.positions[3]",
+          "enabled": true,
+          "timestampMethod": "headerStamp",
+          "label": "joint4"
+        },
+        {
+          "value": "/arm_controller/controller_state.error.positions[4]",
+          "enabled": true,
+          "timestampMethod": "headerStamp",
+          "label": "joint5"
+        },
+        {
+          "value": "/arm_controller/controller_state.error.positions[5]",
+          "enabled": true,
+          "timestampMethod": "headerStamp",
+          "label": "joint6"
+        }
+      ],
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "showLegend": true,
+      "legendDisplay": "floating",
+      "showPlotValuesInLegend": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "sidebarDimension": 240,
+      "followingViewWidth": 30
+    },
+    "Plot!imu_gyro": {
+      "lichtblickPanelTitle": "Wrist IMU angular velocity (rad/s; WRIST_IMU=true)",
+      "paths": [
+        {
+          "value": "/camera/wrist/imu.angular_velocity.x",
+          "enabled": true,
+          "timestampMethod": "headerStamp",
+          "label": "x"
+        },
+        {
+          "value": "/camera/wrist/imu.angular_velocity.y",
+          "enabled": true,
+          "timestampMethod": "headerStamp",
+          "label": "y"
+        },
+        {
+          "value": "/camera/wrist/imu.angular_velocity.z",
+          "enabled": true,
+          "timestampMethod": "headerStamp",
+          "label": "z"
+        }
+      ],
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "showLegend": true,
+      "legendDisplay": "floating",
+      "showPlotValuesInLegend": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "sidebarDimension": 240,
+      "followingViewWidth": 10
+    },
+    "Plot!imu_accel": {
+      "lichtblickPanelTitle": "Wrist IMU acceleration (m/s^2; WRIST_IMU=true)",
+      "paths": [
+        {
+          "value": "/camera/wrist/imu.linear_acceleration.x",
+          "enabled": true,
+          "timestampMethod": "headerStamp",
+          "label": "x"
+        },
+        {
+          "value": "/camera/wrist/imu.linear_acceleration.y",
+          "enabled": true,
+          "timestampMethod": "headerStamp",
+          "label": "y"
+        },
+        {
+          "value": "/camera/wrist/imu.linear_acceleration.z",
+          "enabled": true,
+          "timestampMethod": "headerStamp",
+          "label": "z"
+        }
+      ],
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "showLegend": true,
+      "legendDisplay": "floating",
+      "showPlotValuesInLegend": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "sidebarDimension": 240,
+      "followingViewWidth": 10
+    },
+    "Tab!views": {
+      "activeTabIdx": 0,
+      "tabs": [
+        {
+          "title": "Workcell",
+          "layout": {
+            "first": "3D!18i6zy7",
+            "second": {
+              "first": {
+                "first": {
+                  "first": "Publish!ready",
+                  "second": "Publish!sweep",
+                  "direction": "row"
+                },
+                "second": {
+                  "first": {
+                    "first": "Publish!home",
+                    "second": "Publish!stop",
+                    "direction": "row"
+                  },
+                  "second": {
+                    "first": {
+                      "first": "Publish!pick_cube",
+                      "second": "Publish!pick_cylinder",
+                      "direction": "row"
+                    },
+                    "second": {
+                      "first": "Publish!open",
+                      "second": "Publish!close",
+                      "direction": "row"
+                    },
+                    "direction": "column",
+                    "splitPercentage": 50.0
+                  },
+                  "direction": "column",
+                  "splitPercentage": 33.333333333333336
+                },
+                "direction": "column",
+                "splitPercentage": 25.0
+              },
+              "second": "RawMessagesVirtual!os6rgs",
+              "direction": "column",
+              "splitPercentage": 45
+            },
+            "direction": "row",
+            "splitPercentage": 75
+          }
+        },
+        {
+          "title": "Cameras",
+          "layout": {
+            "first": {
+              "first": "Image!wrist",
+              "second": "Image!wrist_depth",
+              "direction": "row"
+            },
+            "second": {
+              "first": "Image!overhead",
+              "second": "Image!overhead_depth",
+              "direction": "row"
+            },
+            "direction": "column"
+          }
+        },
+        {
+          "title": "Plots",
+          "layout": {
+            "first": {
+              "first": "Plot!arm_positions",
+              "second": "Plot!arm_error",
+              "direction": "row"
+            },
+            "second": {
+              "first": "Plot!imu_gyro",
+              "second": "Plot!imu_accel",
+              "direction": "row"
+            },
+            "direction": "column"
+          }
+        }
+      ]
     }
   },
   "globalVariables": {},
@@ -217,55 +498,5 @@
   "playbackConfig": {
     "speed": 1
   },
-  "layout": {
-    "first": {
-      "first": "3D!18i6zy7",
-      "second": {
-        "first": "Image!wrist",
-        "second": "Image!overhead",
-        "direction": "row"
-      },
-      "direction": "column",
-      "splitPercentage": 62
-    },
-    "second": {
-      "first": {
-        "first": {
-          "first": "Publish!ready",
-          "second": "Publish!sweep",
-          "direction": "row"
-        },
-        "second": {
-          "first": {
-            "first": "Publish!home",
-            "second": "Publish!stop",
-            "direction": "row"
-          },
-          "second": {
-            "first": {
-              "first": "Publish!pick_cube",
-              "second": "Publish!pick_cylinder",
-              "direction": "row"
-            },
-            "second": {
-              "first": "Publish!open",
-              "second": "Publish!close",
-              "direction": "row"
-            },
-            "direction": "column",
-            "splitPercentage": 50.0
-          },
-          "direction": "column",
-          "splitPercentage": 33.333333333333336
-        },
-        "direction": "column",
-        "splitPercentage": 25.0
-      },
-      "second": "RawMessagesVirtual!os6rgs",
-      "direction": "column",
-      "splitPercentage": 45
-    },
-    "direction": "row",
-    "splitPercentage": 75
-  }
+  "layout": "Tab!views"
 }

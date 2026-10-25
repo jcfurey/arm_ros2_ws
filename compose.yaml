@@ -38,6 +38,17 @@ services:
       - colcon-log:/ws/log
     command: ["bash", "/ws/scripts/start.sh"]
     stop_grace_period: 20s
+  # Lichtblick's web build. `make lichtblick` opens it connected to the bridge
+  # with the current lichtblick/workcell.json, served beside the app (a
+  # directory mount, so edits and checkouts show through); the same file is
+  # the layout a browser starts with, read when the container is created.
+  lichtblick:
+    image: ghcr.io/lichtblick-suite/lichtblick:1.30.0
+    ports:
+      - "127.0.0.1:${LICHTBLICK_PORT:-8080}:8080"
+    volumes:
+      - ./lichtblick:/src/layouts:ro
+      - ./lichtblick/workcell.json:/lichtblick/default-layout.json:ro
 
 volumes:
   colcon-build:
