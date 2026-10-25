@@ -54,6 +54,14 @@ Only the open tab subscribes, and Gazebo renders a camera only while
 something subscribes to it, so the Cameras tab is the one that costs
 simulation time (see Simulation performance).
 
+The clouds are colored by calibrated reflectivity on Ouster's fixed 0-100
+scale (diffuse reflectance in percent; retroreflectors take the top color).
+Without fixed **Value min/max** settings, Lichtblick rescales each cloud's
+colors to that scan's own extremes, so a static scene brightens and dims
+from scan to scan; set them when coloring by intensity or ambient too.
+Those two channels carry photon shot noise, about ±15% and ±10% at the
+workcell's distances, while the simulated reflectivity has none.
+
 For a custom **3D** panel, set display frame **`world`** and **Scene → Mesh up
 axis → Z-up**, then reload Lichtblick (Cmd-R) so the mesh loader uses the new
 axis. The manufacturer's STL meshes use ROS Z-up; the application's default

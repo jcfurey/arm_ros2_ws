@@ -63,17 +63,21 @@
       "topics": {
         "/sensor/lidar/ouster_rear/points": {
           "visible": true,
-          "colorField": "intensity",
+          "colorField": "reflectivity",
           "colorMode": "colormap",
           "colorMap": "turbo",
-          "stixelsEnabled": false
+          "stixelsEnabled": false,
+          "minValue": 0,
+          "maxValue": 100
         },
         "/sensor/lidar/ouster_front/points": {
           "visible": true,
-          "colorField": "intensity",
+          "colorField": "reflectivity",
           "colorMode": "colormap",
           "colorMap": "turbo",
-          "stixelsEnabled": false
+          "stixelsEnabled": false,
+          "minValue": 0,
+          "maxValue": 100
         },
         "/robot_description": {
           "visible": false
