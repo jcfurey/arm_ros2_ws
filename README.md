@@ -59,8 +59,12 @@ scale (diffuse reflectance in percent; retroreflectors take the top color).
 Without fixed **Value min/max** settings, Lichtblick rescales each cloud's
 colors to that scan's own extremes, so a static scene brightens and dims
 from scan to scan; set them when coloring by intensity or ambient too.
-Those two channels carry photon shot noise, about ±15% and ±10% at the
-workcell's distances, while the simulated reflectivity has none.
+Those two channels carry shot noise, while the simulated reflectivity has
+none. Intensity follows the response measured on real Rev7 OS1 recordings:
+the median point reads about 3,200 counts on the front sensor (2.2 m away)
+and 1,800 on the rear (3.4 m), under the detector's saturation near 5,700,
+and varies by 1-2% from scan to scan as on the real sensor (try 0-6000).
+Ambient varies by about ±10%.
 
 For a custom **3D** panel, set display frame **`world`** and **Scene → Mesh up
 axis → Z-up**, then reload Lichtblick (Cmd-R) so the mesh loader uses the new
