@@ -2,6 +2,7 @@
 """Lichtblick-friendly world/robot markers, named-pose motion commands, and part tracking."""
 import json
 import math
+import time
 import xml.etree.ElementTree as ET
 
 import rclpy
@@ -24,6 +25,10 @@ from arm_bringup.scene import compose, inverse, load_world, numbers, quaternion
 from arm_bringup.motion_panel import MotionPanel
 
 PRIMITIVES = {"box": SolidPrimitive.BOX, "sphere": SolidPrimitive.SPHERE, "cylinder": SolidPrimitive.CYLINDER}
+# Seconds an operation may go without an answer from MoveIt or any joint
+# motion before it is given up. Planning is allowed 5 s; every other wait is a
+# service call or a moving arm. After Stop the wait is shorter.
+ANSWER_TIMEOUT, STOP_TIMEOUT = 20.0, 5.0
 
 
 def lumped_link(description, link):
@@ -89,7 +94,10 @@ class WorkcellUI(Node):
         self.busy = False
         self.goal = None
         self.stop_requested = False
-        self.create_timer(0.1, self.repeat_stop)
+        self.operation = None
+        # Raised when an operation is given up, so its late answers are dropped.
+        self.epoch = 0
+        self.progress = time.monotonic()
         self.robot_markers = MarkerArray()
         for parameter in ["robot_description", "sensor_description"]:
             description = self.declare_parameter(parameter, "").value
@@ -107,7 +115,6 @@ class WorkcellUI(Node):
             self.create_subscription(PoseStamped, f"/parts/{model}/pose",
                                      lambda message, model=model: self.on_part(model, message),
                                      qos_profile_sensor_data)
-        self.create_timer(0.1, self.sync_parts)
         gripper = {name: dict(joints) for name, (group, joints) in self.states.items() if group == "gripper"}
         bench = [item for item in self.scene.objects if item.id.startswith("sdf/bench_top/")]
         self.picker = None
@@ -125,9 +132,48 @@ class WorkcellUI(Node):
         # <part>_drop frame, or back at its SDF pose when already there.
         self.picks = [model for model in self.parts if self.picker and f"{model}_drop" in self.scene.frames]
         self.motion = MotionPanel(self, semantic, description)
+        self.create_timer(0.1, self.tick)
         self.create_timer(1.0, self.publish_markers)
         self.publish_markers()
         self.status("idle", poses=list(self.states), picks=self.picks, commands_topic="/motion/command")
+
+    def tick(self):
+        self.motion.poll_joints()
+        self.sync_parts()
+        self.repeat_stop()
+        self.watchdog()
+
+    def begin(self, name):
+        self.busy, self.stop_requested, self.operation = True, False, name
+        self.progress = time.monotonic()
+
+    def guard(self, callback):
+        """Wrap a MoveIt answer's callback: it counts as progress, and is dropped if its operation was given up."""
+        epoch = self.epoch
+        self.progress = time.monotonic()
+
+        def answered(*args):
+            if epoch == self.epoch:
+                self.progress = time.monotonic()
+                callback(*args)
+
+        return answered
+
+    def watchdog(self):
+        """Give up an operation MoveIt has stopped answering, so the UI is not busy for ever."""
+        if not self.busy:
+            return
+        quiet = time.monotonic() - max(self.progress, self.motion.last_motion)
+        if quiet < (STOP_TIMEOUT if self.stop_requested else ANSWER_TIMEOUT):
+            return
+        reason = f"MoveIt has not answered for {quiet:.0f} s"
+        self.get_logger().error(f"{self.operation}: {reason}; giving up")
+        self.epoch += 1
+        if self.goal is not None:
+            self.goal.cancel_goal_async()
+        self.stop_pub.publish(String(data="stop"))
+        self.motion.clear(reason)
+        self.finish(self.operation, MoveItErrorCodes.TIMED_OUT, reason=reason)
 
     def status(self, state, **fields):
         code = fields.get("error_code")
@@ -241,7 +287,7 @@ class WorkcellUI(Node):
     def command(self, message):
         name = message.data.strip()
         if name == "stop":
-            self.motion.clear("Stopped; plan again")
+            self.motion.discard("Stopped; plan again")
             self.stop_requested = True
             if self.goal is not None:
                 self.goal.cancel_goal_async()
@@ -258,12 +304,12 @@ class WorkcellUI(Node):
             if held:
                 self.status("rejected", pose=name, reason=f"holding {held[0]}; command open to release it")
                 return
-            self.motion.clear("A pick started; plan again")
+            self.motion.discard("A pick started; plan again")
             self.pick(name, name)
             return
-        self.motion.clear("Another motion started; plan again")
+        self.motion.discard("Another motion started; plan again")
         group, joints = self.states[name]
-        self.busy, self.stop_requested = True, False
+        self.begin(name)
         self.status("planning", pose=name)
         done = self.finish
         if name == "open" and held:
@@ -300,7 +346,7 @@ class WorkcellUI(Node):
                   else drop if math.dist(current[:2], home[:2]) < 0.03 else home[:2])
         items = self.parts[model]["items"]
         steps = self.picker.steps(current, *half_extents(items), target, grasp_yaws(items, current))
-        self.busy, self.stop_requested = True, False
+        self.begin(name)
 
         def run(index, previous_code=SUCCESS):
             if previous_code != SUCCESS or self.stop_requested:
@@ -380,7 +426,7 @@ class WorkcellUI(Node):
                 callback()
             done(model, SUCCESS if ok else -1)
 
-        self.apply_scene.call_async(ApplyPlanningScene.Request(scene=diff)).add_done_callback(applied)
+        self.apply_scene.call_async(ApplyPlanningScene.Request(scene=diff)).add_done_callback(self.guard(applied))
 
     def hand_pose(self, then):
         """Call `then` with MoveIt's current world pose of the tip as a tuple, or None."""
@@ -397,7 +443,7 @@ class WorkcellUI(Node):
             then((p.position.x, p.position.y, p.position.z,
                   p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w))
 
-        self.fk.call_async(query).add_done_callback(located)
+        self.fk.call_async(query).add_done_callback(self.guard(located))
 
     def reachable(self, group, goals, ends, then):
         """Call `then` with the goals whose paired end pose has a collision-free IK solution."""
@@ -411,7 +457,8 @@ class WorkcellUI(Node):
 
         for index, end in enumerate(ends):
             request = ik_request(group, self.picker.tip, end, RobotState(is_diff=True))
-            self.ik.call_async(request).add_done_callback(lambda future, index=index: checked(index, future))
+            self.ik.call_async(request).add_done_callback(
+                self.guard(lambda future, index=index: checked(index, future)))
 
     def cartesian_move(self, name, positions, done):
         """Move link_tcp in straight lines through `positions`, keeping its orientation."""
@@ -424,7 +471,7 @@ class WorkcellUI(Node):
             # Keep grasp approach/lift conservative, and honor slower UI settings.
             request.max_velocity_scaling_factor = min(0.1, self.motion.velocity_scale)
             request.max_acceleration_scaling_factor = min(0.1, self.motion.acceleration_scale)
-            self.cartesian.call_async(request).add_done_callback(planned)
+            self.cartesian.call_async(request).add_done_callback(self.guard(planned))
 
         def planned(future):
             response = future.result()
@@ -432,7 +479,7 @@ class WorkcellUI(Node):
                 done(name, response.error_code.val if response and response.error_code.val != SUCCESS else -2)
                 return
             sent = self.execute.send_goal_async(ExecuteTrajectory.Goal(trajectory=response.solution))
-            sent.add_done_callback(lambda f: self.track(name, f, done))
+            sent.add_done_callback(self.guard(lambda f: self.track(name, f, done)))
 
         self.hand_pose(located)
 
@@ -445,7 +492,8 @@ class WorkcellUI(Node):
             on_accept()
         if self.stop_requested:
             self.goal.cancel_goal_async()
-        self.goal.get_result_async().add_done_callback(lambda f: done(name, f.result().result.error_code.val))
+        self.goal.get_result_async().add_done_callback(
+            self.guard(lambda f: done(name, f.result().result.error_code.val)))
 
     def plan_and_execute(self, name, group, goals, done, on_accept=None, attempts=3):
         """Plan to any one of `goals` (alternative Constraints) and execute.
@@ -474,7 +522,8 @@ class WorkcellUI(Node):
         goal.request.goal_constraints = goals
         goal.planning_options.planning_scene_diff.is_diff = True
         goal.planning_options.planning_scene_diff.robot_state.is_diff = True
-        self.move.send_goal_async(goal).add_done_callback(lambda future: self.track(name, future, finished, on_accept))
+        self.move.send_goal_async(goal).add_done_callback(
+            self.guard(lambda future: self.track(name, future, finished, on_accept)))
 
 
 def main():
@@ -483,6 +532,7 @@ def main():
     try:
         rclpy.spin(node)
     finally:
+        node.motion.joint_states.destroy()
         node.destroy_node()
         rclpy.shutdown()
 

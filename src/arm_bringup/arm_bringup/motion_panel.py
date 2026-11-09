@@ -1,19 +1,30 @@
 """Plan, preview and execute controls for the built-in Lichtblick panels."""
 import copy
 import math
+import time
 import xml.etree.ElementTree as ET
 
 from geometry_msgs.msg import Point, PoseStamped
 from moveit_msgs.action import ExecuteTrajectory, MoveGroup
-from moveit_msgs.msg import MoveItErrorCodes, PlanningScene, PlanningSceneComponents, RobotState
+from moveit_msgs.msg import MoveItErrorCodes, PlanningSceneComponents, RobotState
 from moveit_msgs.srv import GetPlanningScene, GetPositionFK, GetStateValidity
-from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
+from octomap_msgs.msg import OctomapWithPose
+import rclpy
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.serialization import serialize_message
 from sensor_msgs.msg import JointState
 from visualization_msgs.msg import Marker, MarkerArray
 
-from arm_bringup.pick import SUCCESS, joint_goal, pose_goal
+from arm_bringup.pick import NO_IK_SOLUTION, SUCCESS, ik_request, joint_goal, pose_goal
 from arm_bringup.scene import compose
+
+# A joint has moved once it is this far (rad) from where it last counted as
+# moving. The slowest motion the panel offers, 1% speed, covers it in under
+# 0.1 s; a resting simulated arm drifts by about 1e-11.
+MOVING = 1e-3
+# Seconds allowed for the collision-checked reachability query of a tool
+# target, and for the query that tells out of reach from in collision.
+REACH_TIMEOUT, DIAGNOSE_TIMEOUT = 0.5, 0.25
 
 
 def scale_value(text):
@@ -64,8 +75,11 @@ def pose_values(pose):
 def scene_signature(source):
     scene = copy.deepcopy(source)
     scene.robot_state.joint_state = JointState()
+    # A live occupancy map (make perception) changes with every lidar update,
+    # so no saved path would outlive a comparison that included it. Execute
+    # checks every waypoint against the scene as it is then, map included.
+    scene.world.octomap = OctomapWithPose()
     frames = {obj.header.frame_id for obj in scene.world.collision_objects}
-    frames.add(scene.world.octomap.header.frame_id)
     frames.discard("world")
     frames.discard("")
     # MoveIt also exports unrelated TF frames, including parts that jitter by
@@ -79,8 +93,37 @@ def scene_signature(source):
         obj.object.header.stamp.sec = obj.object.header.stamp.nanosec = 0
     for transform in scene.fixed_frame_transforms:
         transform.header.stamp.sec = transform.header.stamp.nanosec = 0
-    scene.world.octomap.header.stamp.sec = scene.world.octomap.header.stamp.nanosec = 0
     return serialize_message(scene)
+
+
+class LatestJointStates:
+    """The newest joint positions, read when asked for.
+
+    An rclpy callback for every /joint_states message costs about 9% of a core
+    at the broadcaster's 100 Hz. This subscription belongs to a node that no
+    executor spins, so messages only queue in the middleware and read() takes
+    what is waiting, as rclpy.wait_for_message does.
+    """
+
+    def __init__(self, ui, topic="/joint_states"):
+        self.node = rclpy.create_node(f"{ui.get_name()}_joint_states", context=ui.context,
+                                      use_global_arguments=False, enable_rosout=False,
+                                      start_parameter_services=False)
+        qos = QoSProfile(depth=5, reliability=ReliabilityPolicy.BEST_EFFORT)
+        # Resolved by the UI's node, so a remapping of its /joint_states applies.
+        self.subscription = self.node.create_subscription(JointState, ui.resolve_topic_name(topic),
+                                                          lambda _message: None, qos)
+        self.positions = {}
+
+    def read(self):
+        handle = self.subscription.handle
+        with handle:
+            while (taken := handle.take_message(JointState, False)) is not None:
+                self.positions.update(zip(taken[0].name, taken[0].position))
+        return self.positions
+
+    def destroy(self):
+        self.node.destroy_node()
 
 
 class MotionPanel:
@@ -96,35 +139,39 @@ class MotionPanel:
                 limit = joint.find("limit")
                 self.limits[joint.attrib["name"]] = (float(limit.attrib["lower"]), float(limit.attrib["upper"]))
         self.velocity_scale = self.acceleration_scale = 0.25
-        self.positions = {}
+        self.joint_states = LatestJointStates(ui)
+        self.positions = self.joint_states.positions
+        self.moved_from = {}
+        self.last_motion = time.monotonic()
         self.generation = 0
         self.saved = None
         self.invalid_reason = ""
-        self.pose_pending = False
+        self.pose_sent = -math.inf
         self.tool_pose = None
-        self.scene_check_pending = False
+        self.scene_sent = -math.inf
         qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.preview_pub = ui.create_publisher(MarkerArray, "/motion/preview", qos)
         self.pose_pub = ui.create_publisher(PoseStamped, "/motion/tool_pose", 2)
         self.validity = ui.create_client(GetStateValidity, "/check_state_validity")
         self.get_scene = ui.create_client(GetPlanningScene, "/get_planning_scene")
-        ui.create_subscription(JointState, "/joint_states", self.on_joints, qos_profile_sensor_data)
         ui.create_subscription(PoseStamped, "/motion/goal_pose", self.pose_target, 2)
         ui.create_subscription(JointState, "/motion/goal_joints", self.joints_target, 2)
-        # World changes from perception or other ROS clients must invalidate a
-        # preview too. Robot-state-only monitor updates are deliberately ignored.
-        ui.create_subscription(PlanningScene, "/monitored_planning_scene", self.scene_changed, QoSProfile(depth=5))
-        ui.create_timer(0.5, self.publish_tool_pose)
+        ui.create_timer(0.5, self.refresh)
         self.clear()
+
+    def ready(self):
+        return (self.ui.move.server_is_ready() and self.ui.fk.service_is_ready() and self.ui.ik.service_is_ready()
+                and self.get_scene.service_is_ready() and self.validity.service_is_ready())
 
     def fields(self):
         return {"busy": self.ui.busy, "can_execute": self.saved is not None and not self.ui.busy,
-                "can_plan": self.ui.move.server_is_ready() and self.ui.fk.service_is_ready() and self.get_scene.service_is_ready()
-                            and all(name in self.positions for name in self.joints),
+                "can_plan": self.ready() and all(name in self.positions for name in self.joints),
                 "velocity_scale": self.velocity_scale, "acceleration_scale": self.acceleration_scale,
                 "tool_link": self.tip, "poses": list(self.ui.states), "picks": self.ui.picks,
                 "arm_poses": [name for name, (group, _) in self.ui.states.items() if group == "arm"],
-                "joints": self.joints, "joint_limits": self.limits, "joint_positions": dict(self.positions),
+                "joints": self.joints, "joint_limits": self.limits,
+                # NaN is not JSON; a joint without a reading is left out.
+                "joint_positions": {name: value for name, value in self.positions.items() if math.isfinite(value)},
                 "tool_pose": self.tool_pose,
                 "held_parts": [name for name, part in self.ui.parts.items() if part.get("attached")],
                 "planned_pose": self.saved["name"] if self.saved else "",
@@ -138,6 +185,10 @@ class MotionPanel:
         self.invalid_reason = reason
         self.preview_pub.publish(MarkerArray(markers=[Marker(action=Marker.DELETEALL)]))
 
+    def discard(self, reason):
+        """Clear for another operation; `reason` only explains a preview that existed."""
+        self.clear(reason if self.saved else "")
+
     def invalidate(self, reason):
         if self.saved:
             self.clear(reason)
@@ -145,33 +196,36 @@ class MotionPanel:
         else:
             self.generation += 1
 
-    def scene_changed(self, message):
-        meaningful = (not message.is_diff or message.world.collision_objects or message.world.octomap.octomap.data
-                      or message.robot_state.attached_collision_objects or message.allowed_collision_matrix.entry_names
-                      or message.link_padding or message.link_scale or message.fixed_frame_transforms)
-        if not meaningful or not self.saved or self.scene_check_pending:
+    def poll_joints(self):
+        """Take the joint states that arrived since the last call (the UI calls this at 10 Hz)."""
+        positions = self.joint_states.read()
+        if any(math.isfinite(value) and not abs(value - self.moved_from.get(name, math.inf)) < MOVING
+               for name, value in positions.items()):
+            self.moved_from, self.last_motion = dict(positions), time.monotonic()
+        if self.saved and not self.ui.busy and not matches_start(self.saved["start"], positions):
+            self.invalidate("Robot moved away from the planned start; plan again")
+
+    def check_scene(self):
+        """Clear a saved preview whose collision objects changed, from perception or other ROS clients."""
+        now = time.monotonic()
+        # An unanswered query is given up after 5 s, so a restarted MoveIt is asked again.
+        if not self.saved or self.ui.busy or now - self.scene_sent < 5.0:
             return
         saved, token = self.saved, self.generation
-        self.scene_check_pending = True
+        self.scene_sent = now
 
         def checked(signature):
-            self.scene_check_pending = False
-            # A delayed notification for an already-removed obstacle must not
-            # invalidate a plan made against the newer scene.
+            self.scene_sent = -math.inf
+            # An answer for a preview that has since been replaced says nothing about the new one.
             if self.saved is saved and token == self.generation and signature != saved["scene"]:
                 self.invalidate("Collision scene changed; plan again")
 
         def failed(reason):
-            self.scene_check_pending = False
+            self.scene_sent = -math.inf
             if self.saved is saved and token == self.generation:
                 self.invalidate(reason)
 
-        self.snapshot(saved["name"], checked, on_error=failed)
-
-    def on_joints(self, message):
-        self.positions.update(zip(message.name, message.position))
-        if self.saved and not self.ui.busy and not matches_start(self.saved["start"], self.positions):
-            self.invalidate("Robot moved away from the planned start; plan again")
+        self.snapshot(saved["name"], checked, on_error=failed, guarded=False)
 
     def reject(self, reason, name=""):
         self.ui.status("rejected", pose=name, reason=reason)
@@ -180,9 +234,10 @@ class MotionPanel:
         if self.ui.busy:
             self.reject("A motion or plan is already in progress")
             return False
-        if not self.ui.move.server_is_ready() or not self.ui.fk.service_is_ready() or not self.get_scene.service_is_ready():
+        if not self.ready():
             self.reject("MoveIt is not ready")
             return False
+        self.poll_joints()
         if not all(name in self.positions for name in self.joints):
             self.reject("Waiting for all arm joint states")
             return False
@@ -204,7 +259,7 @@ class MotionPanel:
                 except ValueError as error:
                     self.reject(str(error))
                     return True
-                self.clear("Speed changed; plan again")
+                self.discard("Speed changed; plan again")
                 self.velocity_scale = self.acceleration_scale = value
                 self.ui.status("idle")
             else:
@@ -214,7 +269,8 @@ class MotionPanel:
             if target not in self.ui.states or self.ui.states[target][0] != "arm":
                 self.reject("Choose an available arm pose", target)
             elif self.available():
-                self.plan(target, [joint_goal(self.ui.states[target][1])])
+                joints = self.ui.states[target][1]
+                self.plan(target, [joint_goal(joints)], self.collision_free(joints))
         elif name.startswith("pick_to "):
             values = name.split()
             if len(values) != 3 or values[1] not in self.ui.picks or values[2] not in ("auto", "home", "drop"):
@@ -224,7 +280,7 @@ class MotionPanel:
                 if held:
                     self.reject(f"Holding {held[0]}; open the gripper to release it first")
                 else:
-                    self.clear("A pick started; plan again")
+                    self.discard("A pick started; plan again")
                     self.ui.pick(values[1], values[1], destination=values[2])
         else:
             return False
@@ -238,7 +294,7 @@ class MotionPanel:
         except ValueError as error:
             self.reject(str(error), "tool target")
             return
-        self.plan("tool target", [pose_goal(self.tip, target)])
+        self.plan("tool target", [pose_goal(self.tip, target)], self.reachable(target))
 
     def joints_target(self, message):
         if not self.available():
@@ -248,7 +304,7 @@ class MotionPanel:
         except ValueError as error:
             self.reject(str(error), "joint target")
             return
-        self.plan("joint target", [joint_goal(targets)])
+        self.plan("joint target", [joint_goal(targets)], self.collision_free(targets))
 
     def active(self, token):
         return token == self.generation and not self.ui.stop_requested
@@ -264,10 +320,72 @@ class MotionPanel:
             self.failed(name, f"MoveIt request failed: {error}")
             return None
 
-    def plan(self, name, goals):
+    def reachable(self, target):
+        """A check for plan(): name the reason at once when no arm configuration reaches a tool pose.
+
+        The planner would otherwise sample for its whole time allowance and
+        report only that it found no plan.
+        """
+        def query(collisions, timeout):
+            request = ik_request("arm", self.tip, target, RobotState(is_diff=True))
+            request.ik_request.avoid_collisions = collisions
+            request.ik_request.timeout.sec, request.ik_request.timeout.nanosec = 0, int(timeout * 1e9)
+            return request
+
+        def check(name, token, proceed):
+            def solved(future):
+                result = self.response(future, name)
+                if result is None:
+                    return
+                if result.error_code.val == SUCCESS or not self.active(token):
+                    proceed()  # which reports a stop
+                    return
+                self.ui.ik.call_async(query(False, DIAGNOSE_TIMEOUT)).add_done_callback(self.ui.guard(diagnosed))
+
+            def diagnosed(future):
+                result = self.response(future, name)
+                if result is None:
+                    return
+                if result.error_code.val == SUCCESS:
+                    self.failed(name, "The tool target is reachable only in collision with the scene or the robot",
+                                MoveItErrorCodes.GOAL_IN_COLLISION)
+                else:
+                    self.failed(name, "The tool target is out of the arm's reach", NO_IK_SOLUTION)
+
+            self.ui.ik.call_async(query(True, REACH_TIMEOUT)).add_done_callback(self.ui.guard(solved))
+
+        return check
+
+    def collision_free(self, targets):
+        """A check for plan(): name the reason at once when a joint goal itself collides."""
+        def check(name, token, proceed):
+            state = RobotState(is_diff=True)
+            state.joint_state = JointState(name=[joint for joint, _ in targets],
+                                           position=[float(value) for _, value in targets])
+
+            def valid(future):
+                result = self.response(future, name)
+                if result is None:
+                    return
+                if result.valid or not self.active(token):
+                    proceed()
+                else:
+                    self.failed(name, "The target collides with the scene or the robot itself",
+                                MoveItErrorCodes.GOAL_IN_COLLISION)
+
+            query = GetStateValidity.Request(robot_state=state, group_name="arm")
+            self.validity.call_async(query).add_done_callback(self.ui.guard(valid))
+
+        return check
+
+    def plan(self, name, goals, check=None):
+        """Plan to `goals` and preview the path without moving.
+
+        `check(name, token, proceed)` may fail the request before the planner runs.
+        """
         self.clear()
         token = self.generation
-        self.ui.busy, self.ui.stop_requested = True, False
+        self.ui.begin(name)
         self.ui.status("planning", pose=name)
         planning_scene = [None]
         goal = MoveGroup.Goal()
@@ -292,7 +410,7 @@ class MotionPanel:
                 return
             if not self.active(token):
                 handle.cancel_goal_async()
-            handle.get_result_async().add_done_callback(planned)
+            handle.get_result_async().add_done_callback(self.ui.guard(planned))
 
         def planned(future):
             wrapped = self.response(future, name)
@@ -308,13 +426,14 @@ class MotionPanel:
                 return
             state = result.trajectory_start.joint_state
             start = {joint: value for joint, value in zip(state.name, state.position) if joint in self.joints}
-            if set(start) != set(self.joints) or not matches_start(start, self.positions):
+            if set(start) != set(self.joints) or not matches_start(start, self.joint_states.read()):
                 self.failed(name, "Robot moved during planning; plan again")
                 return
             last = trajectory.joint_trajectory.points[-1].time_from_start
             saved = {"name": name, "trajectory": trajectory, "state": result.trajectory_start,
                      "start": start, "duration": last.sec + last.nanosec / 1e9,
                      "planning_time": result.planning_time}
+
             def captured(signature):
                 if signature != planning_scene[0]:
                     self.failed(name, "Collision scene changed during planning; plan again")
@@ -328,13 +447,23 @@ class MotionPanel:
                 self.failed(name, "Planning stopped before the request was sent")
                 return
             planning_scene[0] = signature
-            self.ui.move.send_goal_async(goal).add_done_callback(accepted)
+            self.ui.move.send_goal_async(goal).add_done_callback(self.ui.guard(accepted))
 
-        self.snapshot(name, begin)
+        def proceed():
+            self.snapshot(name, begin)
 
-    def snapshot(self, name, then, on_error=None):
-        """Read the collision scene directly; monitor notifications may arrive later."""
-        components = (PlanningSceneComponents.WORLD_OBJECT_GEOMETRY | PlanningSceneComponents.OCTOMAP
+        if check:
+            check(name, token, proceed)
+        else:
+            proceed()
+
+    def snapshot(self, name, then, on_error=None, guarded=True):
+        """Read the collision scene's signature directly from MoveIt.
+
+        The occupancy map is not requested: a megabyte per query that the
+        signature would leave out anyway.
+        """
+        components = (PlanningSceneComponents.WORLD_OBJECT_GEOMETRY
                       | PlanningSceneComponents.ROBOT_STATE_ATTACHED_OBJECTS
                       | PlanningSceneComponents.ALLOWED_COLLISION_MATRIX
                       | PlanningSceneComponents.LINK_PADDING_AND_SCALING
@@ -355,7 +484,7 @@ class MotionPanel:
                 return
             then(scene_signature(response.scene))
 
-        self.get_scene.call_async(query).add_done_callback(received)
+        self.get_scene.call_async(query).add_done_callback(self.ui.guard(received) if guarded else received)
 
     def state_at(self, saved, point):
         state = copy.deepcopy(saved["state"])
@@ -381,7 +510,8 @@ class MotionPanel:
                 links = sorted({marker.header.frame_id for marker in self.ui.robot_markers.markers} & self.links)
                 query = GetPositionFK.Request(fk_link_names=links, robot_state=self.state_at(saved, points[-1]))
                 query.header.frame_id = "world"
-                self.ui.fk.call_async(query).add_done_callback(lambda future: completed(future, links))
+                self.ui.fk.call_async(query).add_done_callback(
+                    self.ui.guard(lambda future: completed(future, links)))
                 return
             query = GetPositionFK.Request(fk_link_names=[self.tip], robot_state=self.state_at(saved, points[indices[index]]))
             query.header.frame_id = "world"
@@ -396,13 +526,13 @@ class MotionPanel:
                 path.append(result.pose_stamped[0].pose.position)
                 next_point(index + 1)
 
-            self.ui.fk.call_async(query).add_done_callback(located)
+            self.ui.fk.call_async(query).add_done_callback(self.ui.guard(located))
 
         def completed(future, links):
             result = self.response(future, saved["name"])
             if result is None:
                 return
-            if not self.active(token) or not matches_start(saved["start"], self.positions):
+            if not self.active(token) or not matches_start(saved["start"], self.joint_states.read()):
                 self.failed(saved["name"], "Robot or collision scene changed; plan again")
                 return
             if result.error_code.val != SUCCESS or len(result.pose_stamped) != len(links):
@@ -416,7 +546,8 @@ class MotionPanel:
             line.scale.x = 0.008
             line.color.r, line.color.g, line.color.b, line.color.a = 0.1, 0.9, 1.0, 1.0
             line.points = path
-            markers.append(line)
+            if len(path) > 1:  # a plan to where the arm already is has no path to draw
+                markers.append(line)
             for original in self.ui.robot_markers.markers:
                 if original.header.frame_id not in transforms:
                     continue
@@ -445,16 +576,16 @@ class MotionPanel:
         if not matches_start(saved["start"], self.positions):
             self.invalidate("Robot moved away from the planned start; plan again")
             return
-        if not self.validity.service_is_ready() or not self.ui.execute.server_is_ready():
-            self.reject("MoveIt's execution or collision-check service is unavailable")
+        if not self.ui.execute.server_is_ready():
+            self.reject("MoveIt's execution service is unavailable")
             return
-        self.ui.busy, self.ui.stop_requested = True, False
+        self.ui.begin(saved["name"])
         self.ui.status("checking", pose=saved["name"])
         token = self.generation
         points = saved["trajectory"].joint_trajectory.points
 
         def checked(index):
-            if not self.active(token) or not matches_start(saved["start"], self.positions):
+            if not self.active(token) or not matches_start(saved["start"], self.joint_states.read()):
                 self.failed(saved["name"], "Robot or collision scene changed before execution; plan again")
                 return
             if index == len(points):
@@ -471,10 +602,11 @@ class MotionPanel:
                     else:
                         checked(index + 1)
 
-            self.validity.call_async(query).add_done_callback(valid)
+            self.validity.call_async(query).add_done_callback(self.ui.guard(valid))
 
         def execute_if_unchanged(signature):
-            if signature != saved["scene"] or not self.active(token) or not matches_start(saved["start"], self.positions):
+            if (signature != saved["scene"] or not self.active(token)
+                    or not matches_start(saved["start"], self.joint_states.read())):
                 self.failed(saved["name"], "Robot or collision scene changed during validation; plan again")
                 return
             self.saved = None  # A preview is single-use, including failed executions.
@@ -484,8 +616,8 @@ class MotionPanel:
                 self.clear()
                 self.ui.finish(name, code)
 
-            future.add_done_callback(lambda f: self.ui.track(saved["name"], f, finished,
-                lambda: self.ui.status("executing", pose=saved["name"])))
+            future.add_done_callback(self.ui.guard(lambda f: self.ui.track(
+                saved["name"], f, finished, lambda: self.ui.status("executing", pose=saved["name"]))))
 
         def initial_scene(signature):
             if signature != saved["scene"]:
@@ -495,19 +627,23 @@ class MotionPanel:
 
         self.snapshot(saved["name"], initial_scene)
 
-    def publish_tool_pose(self):
+    def refresh(self):
+        """Twice a second: re-check a saved preview's scene and, while watched, republish status and tool pose."""
+        self.check_scene()
         watching = self.pose_pub.get_subscription_count() or self.ui.status_pub.get_subscription_count()
         if not watching:
             return
         self.ui.publish_status()
-        if self.pose_pending or not self.ui.fk.service_is_ready():
+        now = time.monotonic()
+        # As in check_scene, an unanswered query does not block the next one for ever.
+        if now - self.pose_sent < 5.0 or not self.ui.fk.service_is_ready():
             return
-        self.pose_pending = True
+        self.pose_sent = now
         query = GetPositionFK.Request(fk_link_names=[self.tip], robot_state=RobotState(is_diff=True))
         query.header.frame_id = "world"
 
         def located(future):
-            self.pose_pending = False
+            self.pose_sent = -math.inf
             try:
                 result = future.result()
             except Exception as error:

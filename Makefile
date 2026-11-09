@@ -1,4 +1,4 @@
-.PHONY: image up down shell build mock headless demo obstacles perception smoke smoke-mock smoke-obstacles bridge-check registration-check rates-check pick-check camera-check imu-check lidar-motion-check moveit-check moveit-panel lichtblick logs
+.PHONY: image up down shell build test mock headless demo obstacles perception smoke smoke-mock smoke-obstacles bridge-check registration-check rates-check pick-check camera-check imu-check lidar-motion-check moveit-check perception-check moveit-panel lichtblick logs
 
 image:
 	docker compose build
@@ -10,6 +10,11 @@ shell:
 	docker compose exec --user ros dev /usr/local/bin/ros-shell.sh bash
 build:
 	docker compose run --rm --no-deps dev bash scripts/build.sh
+# Everything that needs no running stack: unit tests in the dev image, panel tests in Node's.
+test:
+	docker compose run --rm --no-deps dev bash scripts/test.sh
+	docker run --rm -v "$(CURDIR)/lichtblick/moveit-panel:/panel" -w /panel node:22-slim \
+		sh -c "npm ci --no-audit --no-fund && npm test"
 mock:
 	SIM_MODE=mock GUI=false docker compose up -d
 headless:
@@ -42,6 +47,8 @@ lidar-motion-check:
 	docker compose exec --user ros dev /usr/local/bin/ros-shell.sh python3 scripts/check_lidar_motion.py
 moveit-check:
 	docker compose exec --user ros dev /usr/local/bin/ros-shell.sh python3 scripts/check_moveit.py
+perception-check:
+	docker compose exec --user ros dev /usr/local/bin/ros-shell.sh bash -c 'python3 scripts/check_perception.py --world "$${TEST_WORLD:-workcell}"'
 moveit-panel:
 	python3 scripts/package_moveit_panel.py
 lichtblick:

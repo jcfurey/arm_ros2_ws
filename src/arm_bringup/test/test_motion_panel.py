@@ -1,12 +1,25 @@
-"""Validate motion inputs and preview invalidation independently of a running arm."""
+"""Validate motion inputs, preview invalidation and the stuck-operation watchdog without a running arm."""
+import importlib.util
+import math
+from pathlib import Path
+import time
 import unittest
 from unittest.mock import Mock
 
 from geometry_msgs.msg import PoseStamped, TransformStamped
-from moveit_msgs.msg import CollisionObject, PlanningScene
+from moveit_msgs.msg import CollisionObject, MoveItErrorCodes, PlanningScene
+import rclpy
+from sensor_msgs.msg import JointState
 from shape_msgs.msg import SolidPrimitive
 
-from arm_bringup.motion_panel import MotionPanel, joint_targets, matches_start, normalize_pose, scale_value, scene_signature
+from arm_bringup.motion_panel import (MOVING, LatestJointStates, MotionPanel, joint_targets, matches_start,
+                                      normalize_pose, scale_value, scene_signature)
+
+# workcell_ui is installed as an executable, not a module.
+_spec = importlib.util.spec_from_file_location(
+    "workcell_ui", Path(__file__).resolve().parents[1] / "scripts" / "workcell_ui.py")
+workcell_ui = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(workcell_ui)
 
 
 class MotionInputs(unittest.TestCase):
@@ -53,7 +66,8 @@ class MotionInputs(unittest.TestCase):
 class SceneInvalidation(unittest.TestCase):
     def setUp(self):
         self.panel = MotionPanel.__new__(MotionPanel)
-        self.panel.scene_check_pending, self.panel.generation = False, 1
+        self.panel.ui = Mock(busy=False)
+        self.panel.scene_sent, self.panel.generation = -math.inf, 1
         self.panel.saved = {"name": "ready", "scene": b"current"}
         self.current = b"current"
         self.panel.snapshot = Mock(side_effect=lambda name, then, **_kwargs: then(self.current))
@@ -70,28 +84,45 @@ class SceneInvalidation(unittest.TestCase):
         message.world.collision_objects = [obj]
         return message
 
-    def test_repeated_scene_and_robot_only_updates_keep_preview_valid(self):
-        message = self.scene()
-        self.panel.scene_changed(message)
-        message.world.collision_objects[0].header.stamp.sec = 123
-        self.panel.scene_changed(message)
-        self.panel.scene_changed(PlanningScene(is_diff=True))
+    def test_an_unchanged_scene_keeps_the_preview(self):
+        self.panel.check_scene()
+        self.panel.check_scene()
+        self.assertEqual(self.panel.snapshot.call_count, 2)
         self.panel.invalidate.assert_not_called()
 
-    def test_changed_and_removed_obstacles_invalidate_preview(self):
+    def test_a_changed_scene_clears_the_preview(self):
         self.current = b"changed"
-        self.panel.scene_changed(self.scene(0.5))
-        self.panel.invalidate.assert_called_once()
-        self.panel.invalidate.reset_mock()
-        message = self.scene()
-        message.world.collision_objects[0].operation = CollisionObject.REMOVE
-        self.panel.scene_changed(message)
-        self.panel.invalidate.assert_called_once()
+        self.panel.check_scene()
+        self.panel.invalidate.assert_called_once_with("Collision scene changed; plan again")
 
-    def test_full_scene_can_remove_old_obstacles(self):
-        self.current = b"empty"
-        self.panel.scene_changed(PlanningScene(is_diff=False))
-        self.panel.invalidate.assert_called_once()
+    def test_nothing_is_asked_without_a_preview_or_during_an_operation(self):
+        self.panel.ui.busy = True
+        self.panel.check_scene()
+        self.panel.ui.busy, self.panel.saved = False, None
+        self.panel.check_scene()
+        self.panel.snapshot.assert_not_called()
+
+    def test_an_unanswered_query_blocks_the_next_one_only_for_a_while(self):
+        self.panel.snapshot = Mock()  # MoveIt never answers
+        self.panel.check_scene()
+        self.panel.check_scene()
+        self.assertEqual(self.panel.snapshot.call_count, 1)
+        self.panel.scene_sent = time.monotonic() - 6.0
+        self.panel.check_scene()
+        self.assertEqual(self.panel.snapshot.call_count, 2)
+
+    def test_an_answer_for_a_replaced_preview_is_ignored(self):
+        answers = []
+        self.panel.snapshot = Mock(side_effect=lambda name, then, **_kwargs: answers.append(then))
+        self.panel.check_scene()
+        self.panel.saved, self.panel.generation = {"name": "sweep", "scene": b"newer"}, 2
+        answers[0](b"changed")
+        self.panel.invalidate.assert_not_called()
+
+    def test_a_failed_query_clears_the_preview(self):
+        self.panel.snapshot = Mock(side_effect=lambda name, then, on_error, **_kwargs: on_error("no answer"))
+        self.panel.check_scene()
+        self.panel.invalidate.assert_called_once_with("no answer")
 
     def test_unused_part_transform_jitter_does_not_change_the_signature(self):
         scene = self.scene()
@@ -112,6 +143,146 @@ class SceneInvalidation(unittest.TestCase):
         expected = scene_signature(scene)
         scene.fixed_frame_transforms[0].transform.translation.x += 0.1
         self.assertNotEqual(scene_signature(scene), expected)
+
+    def test_a_live_occupancy_map_is_not_part_of_the_signature(self):
+        scene = self.scene()
+        expected = scene_signature(scene)
+        scene.world.octomap.header.frame_id = "world"
+        scene.world.octomap.octomap.resolution = 0.04
+        scene.world.octomap.octomap.data = [1, 2, 3]
+        self.assertEqual(scene_signature(scene), expected)
+        scene.world.octomap.octomap.data = [3, 2, 1, 0]
+        self.assertEqual(scene_signature(scene), expected)
+        self.assertEqual(list(scene.world.octomap.octomap.data), [3, 2, 1, 0])
+
+
+class PreviewBookkeeping(unittest.TestCase):
+    def setUp(self):
+        self.panel = MotionPanel.__new__(MotionPanel)
+        self.panel.ui = Mock(busy=False)
+        self.panel.preview_pub = Mock()
+        self.panel.generation, self.panel.saved, self.panel.invalid_reason = 1, None, "earlier"
+
+    def test_discard_explains_only_a_preview_that_existed(self):
+        self.panel.discard("Speed changed; plan again")
+        self.assertEqual(self.panel.invalid_reason, "")
+        self.panel.saved = {"name": "ready"}
+        self.panel.discard("Speed changed; plan again")
+        self.assertEqual(self.panel.invalid_reason, "Speed changed; plan again")
+        self.assertIsNone(self.panel.saved)
+        self.assertEqual(self.panel.generation, 3)
+
+    def test_joint_motion_is_noticed_and_a_moved_arm_clears_the_preview(self):
+        positions = {"a": 0.5}
+        self.panel.joint_states = Mock(read=Mock(return_value=positions))
+        self.panel.moved_from, self.panel.last_motion = {}, 0.0
+        self.panel.poll_joints()  # the first reading counts
+        first = self.panel.last_motion
+        self.assertGreater(first, 0.0)
+        self.panel.last_motion = 0.0
+        positions["a"] += MOVING / 2
+        self.panel.poll_joints()
+        self.assertEqual(self.panel.last_motion, 0.0)
+        positions["a"] += MOVING
+        self.panel.poll_joints()
+        self.assertGreater(self.panel.last_motion, 0.0)
+        positions["b"] = float("nan")  # a joint without a reading is not motion
+        self.panel.poll_joints()
+        self.panel.last_motion = 0.0
+        self.panel.poll_joints()
+        self.assertEqual(self.panel.last_motion, 0.0)
+
+        self.panel.invalidate = Mock()
+        self.panel.saved = {"start": {"a": positions["a"]}}
+        self.panel.poll_joints()
+        self.panel.invalidate.assert_not_called()
+        positions["a"] += 0.02
+        self.panel.poll_joints()
+        self.panel.invalidate.assert_called_once()
+
+
+class JointStateReader(unittest.TestCase):
+    def test_messages_are_taken_on_request_without_spinning(self):
+        rclpy.init()
+        try:
+            owner = rclpy.create_node("reader_owner")
+            source = rclpy.create_node("reader_source")
+            publisher = source.create_publisher(JointState, "/reader_test/joint_states", 5)
+            reader = LatestJointStates(owner, "/reader_test/joint_states")
+            self.assertEqual(reader.read(), {})
+            end = time.monotonic() + 10
+            while not reader.read() and time.monotonic() < end:
+                publisher.publish(JointState(name=["a", "b"], position=[0.1, 0.2]))
+                time.sleep(0.05)
+            self.assertEqual(reader.read(), {"a": 0.1, "b": 0.2})
+            publisher.publish(JointState(name=["b"], position=[0.3]))
+            end = time.monotonic() + 10
+            while reader.read()["b"] != 0.3 and time.monotonic() < end:
+                time.sleep(0.05)
+            self.assertEqual(reader.read(), {"a": 0.1, "b": 0.3})
+            reader.destroy()
+            owner.destroy_node()
+            source.destroy_node()
+        finally:
+            rclpy.shutdown()
+
+
+class StuckOperations(unittest.TestCase):
+    def setUp(self):
+        self.ui = workcell_ui.WorkcellUI.__new__(workcell_ui.WorkcellUI)
+        self.ui.busy, self.ui.stop_requested, self.ui.goal, self.ui.epoch = False, False, None, 0
+        self.ui.progress = time.monotonic()
+        self.ui.motion = Mock(last_motion=0.0)
+        self.ui.stop_pub = Mock()
+        self.ui.get_logger = Mock()
+        self.ui.finish = Mock()
+
+    def test_answers_count_as_progress_and_late_ones_are_dropped(self):
+        answered = Mock()
+        callback = self.ui.guard(answered)
+        self.ui.progress = 0.0
+        callback("first")
+        answered.assert_called_once_with("first")
+        self.assertGreater(self.ui.progress, 0.0)
+        self.ui.epoch += 1
+        callback("late")
+        answered.assert_called_once_with("first")
+
+    def test_an_idle_ui_and_a_recent_answer_are_left_alone(self):
+        self.ui.progress = 0.0
+        self.ui.watchdog()
+        self.ui.begin("ready")
+        self.ui.watchdog()
+        self.ui.finish.assert_not_called()
+
+    def test_a_silent_operation_is_given_up_and_its_goal_cancelled(self):
+        self.ui.begin("ready")
+        self.ui.goal = Mock()
+        self.ui.progress = time.monotonic() - workcell_ui.ANSWER_TIMEOUT - 1
+        self.ui.watchdog()
+        self.assertEqual(self.ui.epoch, 1)
+        self.ui.goal.cancel_goal_async.assert_called_once()
+        self.ui.stop_pub.publish.assert_called_once()
+        self.ui.motion.clear.assert_called_once()
+        name, code = self.ui.finish.call_args.args
+        self.assertEqual((name, code), ("ready", MoveItErrorCodes.TIMED_OUT))
+        self.assertIn("MoveIt has not answered", self.ui.finish.call_args.kwargs["reason"])
+
+    def test_a_moving_arm_is_progress(self):
+        self.ui.begin("ready")
+        self.ui.progress = time.monotonic() - workcell_ui.ANSWER_TIMEOUT - 1
+        self.ui.motion.last_motion = time.monotonic()
+        self.ui.watchdog()
+        self.ui.finish.assert_not_called()
+
+    def test_stop_shortens_the_wait(self):
+        self.ui.begin("ready")
+        self.ui.progress = time.monotonic() - workcell_ui.STOP_TIMEOUT - 1
+        self.ui.watchdog()
+        self.ui.finish.assert_not_called()
+        self.ui.stop_requested = True
+        self.ui.watchdog()
+        self.ui.finish.assert_called_once()
 
 
 if __name__ == "__main__":

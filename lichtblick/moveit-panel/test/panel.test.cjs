@@ -46,7 +46,7 @@ test("named pose plans before enabling execution; busy controls reject clicks", 
   p.$("plan-named").click();
   assert.equal(p.messages.length, count);
   p.$("stop").click();
-  assert.deepEqual(p.messages.at(-1), ["/motion/command", { data: "stop" }]);
+  assert.deepEqual(p.messages.slice(-2), [["/trajectory_execution_event", { data: "stop" }], ["/motion/command", { data: "stop" }]]);
 });
 
 test("Cartesian mode copies current pose and publishes normalized orientation", async (t) => {
@@ -109,6 +109,22 @@ test("speed publishes a bounded scale and a stale status disables motion", async
   assert.equal(p.$("execute").disabled, true);
   assert.equal(p.$("plan-named").disabled, true);
   assert.match(p.$("connection").textContent, /WAITING/);
+});
+
+test("Stop is sent to the workcell and to MoveIt even when the status has gone stale", async (t) => {
+  const p = await panel(t, { state: "executing", busy: true });
+  assert.ok(p.advertised.some(([topic, type]) => topic === "/trajectory_execution_event" && type === "std_msgs/msg/String"));
+  t.mock.method(Date, "now", () => Date.parse("2100-01-01T00:00:00Z"));
+  p.context.onRender({ currentFrame: [] }, () => {});
+  assert.match(p.$("connection").textContent, /WAITING/);
+  assert.equal(p.$("stop").disabled, false);
+  const count = p.messages.length;
+  p.$("execute").click();
+  p.$("plan-named").click();
+  assert.equal(p.messages.length, count);
+  p.$("stop").click();
+  assert.deepEqual(p.messages.slice(count), [["/trajectory_execution_event", { data: "stop" }], ["/motion/command", { data: "stop" }]]);
+  assert.equal(p.$("local-error").textContent, "");
 });
 
 test("edited targets and dropdown choices survive closing the tab", async (t) => {

@@ -5,6 +5,9 @@ const COMMAND = "/motion/command";
 const STATUS = "/motion/status";
 const POSE = "/motion/goal_pose";
 const JOINTS = "/motion/goal_joints";
+// MoveIt's own stop channel. Stop publishes here as well as to the workcell
+// UI, so it still halts the arm when the UI has stopped answering.
+const EVENT = "/trajectory_execution_event";
 const DEG = Math.PI / 180;
 
 function quaternion(r, p, y) {
@@ -86,9 +89,10 @@ function initPanel(context) {
   const clock = () => Date.now();
   const fresh = () => state.received > 0 && clock() - state.received < 4000;
 
-  function publish(topic, message) {
+  // Stop passes `always`: a stale status must never keep it from being sent.
+  function publish(topic, message, always = false) {
     try {
-      if (!context.publish || !state.advertised || !fresh()) throw new Error("Waiting for a live workcell connection");
+      if (!context.publish || !state.advertised || !(always || fresh())) throw new Error("Waiting for a live workcell connection");
       context.publish(topic, message);
       $("local-error").textContent = "";
     } catch (error) { $("local-error").textContent = error.message || String(error); }
@@ -147,7 +151,8 @@ function initPanel(context) {
     publish(JOINTS, { header: { stamp: { sec: 0, nanosec: 0 }, frame_id: "" }, name: state.joints, position: positions, velocity: [], effort: [] });
   });
   $("pick-place").addEventListener("click", () => command(`pick_to ${$("part").value} ${$("destination").value}`));
-  for (const action of ["execute", "clear", "stop", "open", "close"]) $(action).addEventListener("click", () => command(action));
+  for (const action of ["execute", "clear", "open", "close"]) $(action).addEventListener("click", () => command(action));
+  $("stop").addEventListener("click", () => { publish(EVENT, { data: "stop" }, true); publish(COMMAND, { data: "stop" }, true); });
   $("speed").addEventListener("input", () => { $("speed-label").textContent = `${$("speed").value}%`; });
   $("speed").addEventListener("change", () => command(`speed ${Number($("speed").value) / 100}`));
 
@@ -167,7 +172,7 @@ function initPanel(context) {
     $("close").disabled = !idle || !(status.poses || []).includes("close");
     $("execute").disabled = !live || !status.can_execute || status.busy;
     $("clear").disabled = !live || status.busy || !status.can_execute;
-    $("stop").disabled = !live;
+    $("stop").disabled = !state.advertised;
     $("mode").disabled = !live;
     if (JSON.stringify(state.joints) !== JSON.stringify(status.joints || [])) {
       state.joints = status.joints || [];
@@ -210,6 +215,7 @@ function initPanel(context) {
         context.advertise(COMMAND, "std_msgs/msg/String");
         context.advertise(POSE, "geometry_msgs/msg/PoseStamped");
         context.advertise(JOINTS, "sensor_msgs/msg/JointState");
+        context.advertise(EVENT, "std_msgs/msg/String");
         state.advertised = true;
         $("local-error").textContent = "";
       }
@@ -231,7 +237,7 @@ function initPanel(context) {
   };
   const timer = setInterval(render, 1000);
   render();
-  return () => { clearInterval(timer); context.unsubscribeAll(); for (const topic of [COMMAND, POSE, JOINTS]) context.unadvertise?.(topic); root.replaceChildren(); };
+  return () => { clearInterval(timer); context.unsubscribeAll(); for (const topic of [COMMAND, POSE, JOINTS, EVENT]) context.unadvertise?.(topic); root.replaceChildren(); };
 }
 
 module.exports = { activate(context) { context.registerPanel({ name: "MoveIt controls", initPanel }); } };

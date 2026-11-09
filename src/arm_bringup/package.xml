@@ -32,6 +32,7 @@
   <exec_depend>rclpy</exec_depend>
   <depend>sensor_msgs</depend>
   <exec_depend>moveit_msgs</exec_depend>
+  <exec_depend>octomap_msgs</exec_depend>
   <exec_depend>shape_msgs</exec_depend>
   <exec_depend>xacro</exec_depend>
   <exec_depend>tf2_ros</exec_depend>

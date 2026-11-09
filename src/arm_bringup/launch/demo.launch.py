@@ -3,7 +3,7 @@ from pathlib import Path
 import re
 import tempfile
 
-from ament_index_python.packages import get_package_prefix, get_package_share_directory
+from ament_index_python.packages import PackageNotFoundError, get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import AppendEnvironmentVariable, DeclareLaunchArgument, EmitEvent, IncludeLaunchDescription
 from launch.actions import OpaqueFunction, RegisterEventHandler
@@ -57,6 +57,14 @@ def launch_setup(context):
     perception = flag("perception")
     if perception and not ousters:
         raise ValueError("perception requires Gazebo mode and ousters:=true")
+    if perception:
+        # MoveIt only logs an error when a configured updater plugin is missing,
+        # and then plans against an empty occupancy map.
+        try:
+            get_package_share_directory("moveit_ros_perception")
+        except PackageNotFoundError:
+            raise RuntimeError("perception:=true needs MoveIt's point-cloud occupancy updater; "
+                               "install the moveit_ros_perception package") from None
     gripper = robot == "xarm6" and flag("gripper")
     cameras = sim and flag("cameras")
     weld = sim and gripper and flag("weld_grasps")

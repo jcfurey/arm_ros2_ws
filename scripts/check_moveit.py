@@ -113,6 +113,8 @@ class Check(Node):
         if self.status["velocity_scale"] != 0.1:
             raise RuntimeError("Invalid speed changed the settings")
         self.send("speed 0.25", {"idle"})
+        if self.status["invalid_reason"]:
+            raise RuntimeError(f"A speed change with no preview left a hint behind: {self.status['invalid_reason']}")
         print("PASS: speed settings are applied and malformed input is rejected", flush=True)
 
         self.joints.publish(JointState(name=["missing"], position=[0.0]))
@@ -142,6 +144,16 @@ class Check(Node):
         self.send("clear", {"idle"})
         self.send("execute", {"rejected"})
         print("PASS: Cartesian tool target plans without moving; cleared plans cannot execute", flush=True)
+
+        # The planner alone would sample for its whole 5 s and report only that it found no plan.
+        message.pose.position.x += 3.0
+        sequence, sent = self.sequence, time.monotonic()
+        self.poses.publish(message)
+        self.until(lambda: self.sequence > sequence and self.status.get("state") in ("planned", "failed", "rejected"))
+        took = time.monotonic() - sent
+        if self.status["state"] != "failed" or "out of the arm's reach" not in self.status.get("reason", "") or took > 3.0:
+            raise RuntimeError(f"An unreachable tool target was not refused at once ({took:.1f} s): {self.status}")
+        print(f"PASS: an unreachable tool target is refused with its reason in {took:.1f} s", flush=True)
 
         self.plan("plan home")
         self.send("execute", {"executing", "failed", "rejected"})

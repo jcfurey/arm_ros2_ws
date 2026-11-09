@@ -12,12 +12,24 @@ SOURCE = ROOT / "lichtblick" / "moveit-panel"
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--install", action="store_true", help="Also install into this user's Lichtblick desktop extensions directory.")
+    parser.add_argument("--check", action="store_true",
+                        help="Write nothing; fail unless the checked-in package matches its source.")
     args = parser.parse_args()
     package = json.loads((SOURCE / "package.json").read_text())
     output = ROOT / "lichtblick" / f"{package['publisher']}.{package['name']}-{package['version']}.foxe"
     files = {"package.json": (SOURCE / "package.json").read_bytes(),
              "dist/extension.js": (SOURCE / "src" / "extension.js").read_bytes(),
              "README.md": (SOURCE / "README.md").read_bytes()}
+    if args.check:
+        # Compare contents, not bytes: zlib versions may compress differently.
+        if not output.is_file():
+            raise SystemExit(f"{output.name} is missing; run make moveit-panel")
+        with zipfile.ZipFile(output) as archive:
+            packaged = {name: archive.read(name) for name in archive.namelist()}
+        if packaged != files:
+            raise SystemExit(f"{output.name} does not match lichtblick/moveit-panel; run make moveit-panel")
+        print(f"{output.name} matches its source")
+        return
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
         for name, content in files.items():
             info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
