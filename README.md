@@ -274,8 +274,8 @@ motion-panel unit tests and the bootstrap tests (which use disposable local
 Git repositories) in the dev image, a check that the packaged `.foxe` matches
 its source, and the panel's interaction tests in a Node image. Inside any
 sourced ROS with `moveit_msgs`, `bash scripts/test.sh` runs the first three.
-CI (`.github/workflows/ci.yaml`) runs these on every push and pull request,
-then builds the image and runs the mock smoke test and the Gazebo smoke test,
+CI (`.github/workflows/ci.yaml`) runs these on pushes to `main` and `claude/**`
+and on pull requests, then builds the image and runs the mock smoke test and the Gazebo smoke test,
 the latter once more with the occupancy map enabled.
 
 ```sh
