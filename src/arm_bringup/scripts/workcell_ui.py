@@ -21,6 +21,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 from arm_bringup.pick import (NO_IK_SOLUTION, SUCCESS, PickPlace, cartesian_request, grasp_yaws, half_extents,
                               ik_request, pose)
 from arm_bringup.scene import compose, inverse, load_world, numbers, quaternion
+from arm_bringup.motion_panel import MotionPanel
 
 PRIMITIVES = {"box": SolidPrimitive.BOX, "sphere": SolidPrimitive.SPHERE, "cylinder": SolidPrimitive.CYLINDER}
 
@@ -71,6 +72,7 @@ class WorkcellUI(Node):
         self.world_pub = self.create_publisher(MarkerArray, "/scene/markers", qos)
         self.robot_pub = self.create_publisher(MarkerArray, "/robot/markers", qos)
         self.status_pub = self.create_publisher(String, "/motion/status", qos)
+        self.stop_pub = self.create_publisher(String, "/trajectory_execution_event", 10)
         self.scene_pub = self.create_publisher(PlanningScene, "/planning_scene", 10)
         self.tf = TransformBroadcaster(self)
         self.move = ActionClient(self, MoveGroup, "/move_action")
@@ -87,6 +89,7 @@ class WorkcellUI(Node):
         self.busy = False
         self.goal = None
         self.stop_requested = False
+        self.create_timer(0.1, self.repeat_stop)
         self.robot_markers = MarkerArray()
         for parameter in ["robot_description", "sensor_description"]:
             description = self.declare_parameter(parameter, "").value
@@ -121,12 +124,23 @@ class WorkcellUI(Node):
         # A part's name as a command picks it and sets it at the world's
         # <part>_drop frame, or back at its SDF pose when already there.
         self.picks = [model for model in self.parts if self.picker and f"{model}_drop" in self.scene.frames]
+        self.motion = MotionPanel(self, semantic, description)
         self.create_timer(1.0, self.publish_markers)
         self.publish_markers()
         self.status("idle", poses=list(self.states), picks=self.picks, commands_topic="/motion/command")
 
     def status(self, state, **fields):
-        self.status_pub.publish(String(data=json.dumps({"state": state, **fields})))
+        code = fields.get("error_code")
+        if code is not None:
+            fields["error_name"] = next((name for name in dir(MoveItErrorCodes)
+                                          if name.isupper() and getattr(MoveItErrorCodes, name) == code), str(code))
+        self.last_status = {"state": state, **fields}
+        self.publish_status()
+
+    def publish_status(self):
+        details = self.motion.fields() if hasattr(self, "motion") else {}
+        # Live fields take precedence over the initial list of poses and picks.
+        self.status_pub.publish(String(data=json.dumps({**self.last_status, **details})))
 
     def add_urdf_markers(self, description):
         root = ET.fromstring(description)
@@ -221,15 +235,20 @@ class WorkcellUI(Node):
                 set_pose(obj.pose, compose(pose, item.model_offset))
                 diff.world.collision_objects.append(obj)
         if diff.world.collision_objects:
+            self.motion.invalidate("A workcell part moved; plan again")
             self.scene_pub.publish(diff)
 
     def command(self, message):
         name = message.data.strip()
         if name == "stop":
+            self.motion.clear("Stopped; plan again")
             self.stop_requested = True
             if self.goal is not None:
                 self.goal.cancel_goal_async()
+            self.repeat_stop()
             self.status("cancelling" if self.busy else "idle")
+            return
+        if self.motion.command(name):
             return
         if self.busy or name not in [*self.states, *self.picks] or not self.move.server_is_ready():
             self.status("rejected", pose=name, reason="busy, unknown pose, or MoveIt unavailable")
@@ -239,8 +258,10 @@ class WorkcellUI(Node):
             if held:
                 self.status("rejected", pose=name, reason=f"holding {held[0]}; command open to release it")
                 return
+            self.motion.clear("A pick started; plan again")
             self.pick(name, name)
             return
+        self.motion.clear("Another motion started; plan again")
         group, joints = self.states[name]
         self.busy, self.stop_requested = True, False
         self.status("planning", pose=name)
@@ -257,17 +278,26 @@ class WorkcellUI(Node):
                             weight=1.0) for joint, value in joints])], done,
             on_accept=lambda: self.status("executing", pose=name))
 
+    def repeat_stop(self):
+        # MoveIt 2.15's ExecuteTrajectory cancel callback accepts cancellation
+        # without calling stopExecution. Its supported execution-event channel
+        # stops the controller; repeat while cancelling to cover a goal that
+        # has been accepted but has not started execution yet.
+        if self.busy and self.stop_requested:
+            self.stop_pub.publish(String(data="stop"))
+
     def finish(self, name, code, **fields):
         self.busy, self.goal = False, None
         self.status("succeeded" if code == SUCCESS else "stopped" if self.stop_requested else "failed",
                     pose=name, error_code=code, **fields)
 
-    def pick(self, name, model):
+    def pick(self, name, model, destination="auto"):
         """Pick a part and set it in its drop zone, or back at its SDF pose."""
         home = compose(self.parts[model]["items"][0].pose, inverse(self.parts[model]["items"][0].model_offset))
         current = self.parts[model]["pose"]
         drop = self.scene.frames[f"{model}_drop"][:2]
-        target = drop if math.dist(current[:2], home[:2]) < 0.03 else home[:2]
+        target = (drop if destination == "drop" else home[:2] if destination == "home"
+                  else drop if math.dist(current[:2], home[:2]) < 0.03 else home[:2])
         items = self.parts[model]["items"]
         steps = self.picker.steps(current, *half_extents(items), target, grasp_yaws(items, current))
         self.busy, self.stop_requested = True, False
@@ -391,6 +421,9 @@ class WorkcellUI(Node):
                 return
             waypoints = [pose(xyz, hand[3:]) for xyz in positions]
             request = cartesian_request("arm", self.picker.tip, waypoints, RobotState(is_diff=True))
+            # Keep grasp approach/lift conservative, and honor slower UI settings.
+            request.max_velocity_scaling_factor = min(0.1, self.motion.velocity_scale)
+            request.max_acceleration_scaling_factor = min(0.1, self.motion.acceleration_scale)
             self.cartesian.call_async(request).add_done_callback(planned)
 
         def planned(future):
@@ -435,8 +468,8 @@ class WorkcellUI(Node):
         goal.request.planner_id = "RRTConnectkConfigDefault"
         goal.request.allowed_planning_time = 5.0
         goal.request.num_planning_attempts = 3
-        goal.request.max_velocity_scaling_factor = 0.25
-        goal.request.max_acceleration_scaling_factor = 0.25
+        goal.request.max_velocity_scaling_factor = self.motion.velocity_scale
+        goal.request.max_acceleration_scaling_factor = self.motion.acceleration_scale
         goal.request.start_state.is_diff = True
         goal.request.goal_constraints = goals
         goal.planning_options.planning_scene_diff.is_diff = True

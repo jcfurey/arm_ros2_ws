@@ -1,4 +1,4 @@
-.PHONY: image up down shell build mock headless demo obstacles perception smoke smoke-mock smoke-obstacles bridge-check registration-check rates-check pick-check camera-check imu-check lidar-motion-check lichtblick logs
+.PHONY: image up down shell build mock headless demo obstacles perception smoke smoke-mock smoke-obstacles bridge-check registration-check rates-check pick-check camera-check imu-check lidar-motion-check moveit-check moveit-panel lichtblick logs
 
 image:
 	docker compose build
@@ -40,6 +40,10 @@ imu-check:
 	docker compose exec --user ros dev /usr/local/bin/ros-shell.sh python3 scripts/check_imu.py
 lidar-motion-check:
 	docker compose exec --user ros dev /usr/local/bin/ros-shell.sh python3 scripts/check_lidar_motion.py
+moveit-check:
+	docker compose exec --user ros dev /usr/local/bin/ros-shell.sh python3 scripts/check_moveit.py
+moveit-panel:
+	python3 scripts/package_moveit_panel.py
 lichtblick:
 	@app="http://localhost:$${LICHTBLICK_PORT:-8080}"; \
 	url="$$app/?ds=foxglove-websocket&ds.url=ws://localhost:$${FOXGLOVE_PORT:-8765}&layoutUrl=$$app/layouts/workcell.json"; \

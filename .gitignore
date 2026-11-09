@@ -58,3 +58,4 @@ __pycache__/
 .DS_Store
 .env
 .venv/
+/lichtblick/moveit-panel/node_modules/

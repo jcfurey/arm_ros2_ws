@@ -42,10 +42,13 @@ layout. The stack serves Lichtblick 1.30.0's web build at
 `workcell`, so save changes you want to keep under another name. In the
 desktop application (1.22 or newer), choose **File → Open connection →
 Foxglove WebSocket**, enter `ws://localhost:8765`, and import the layout in
-**Layouts → Import from file…**. The layout has three tabs:
+**Layouts → Import from file…**. The layout has four tabs:
 
 - **Workcell:** the scene, both clouds, motion, pick, and gripper buttons,
   and motion status.
+- **MoveIt:** a planning view with a dropdown for named poses, Cartesian
+  tool targets, joint targets, and pick and place. It uses the local
+  **Arm MoveIt** extension described below.
 - **Cameras:** color and depth from the wrist and overhead cameras.
 - **Plots:** the arm's joint positions and tracking error, and the wrist IMU
   with `WRIST_IMU=true`.
@@ -53,6 +56,39 @@ Foxglove WebSocket**, enter `ws://localhost:8765`, and import the layout in
 Only the open tab subscribes, and Gazebo renders a camera only while
 something subscribes to it, so the Cameras tab is the one that costs
 simulation time (see Simulation performance).
+
+Install the MoveIt dropdown panel once per Lichtblick application/browser:
+
+```sh
+python3 scripts/package_moveit_panel.py --install  # installs in the desktop app's extensions folder
+```
+
+Reload the desktop app after installing, then import
+[`lichtblick/workcell.json`](lichtblick/workcell.json). In the web app, open
+**Extensions → Install local extension** and select
+[`workspace.arm-moveit-0.1.0.foxe`](lichtblick/workspace.arm-moveit-0.1.0.foxe),
+also served at
+`http://localhost:8080/layouts/workspace.arm-moveit-0.1.0.foxe`, then reopen
+`make lichtblick`. The package has no runtime or build dependencies. The
+existing Workcell, Cameras, and Plots panels work without the extension.
+
+In **MoveIt**, select a mode and target, click **Plan**, inspect the cyan tool
+path and translucent goal robot, then click **Execute plan**. Planning does
+not move the arm. The execute step checks the robot's start, the collision
+scene, and every trajectory waypoint; moving the arm, changing speed, or
+changing collision geometry clears the saved plan. A plan can execute once.
+**Clear** removes a preview; **Stop** cancels the active motion and clears it.
+
+**Cartesian tool pose** uses `world` coordinates in metres and roll/pitch/yaw
+in degrees; **Use current pose** fills the fields from MoveIt's FK. This is a
+pose goal: MoveIt may choose a curved path. **Joint targets** has degree inputs
+and sliders with the robot's limits, plus **Use current joints**. Inputs and
+dropdown choices survive tab changes. **Pick and place** selects the part and
+either its drop zone, its original position, or the other location. **Pick +
+place** executes the whole sequence and shows its active step; Open/Close
+operate the gripper. The shared speed control affects subsequent motions;
+grasp approach/lift stays at 10% or slower. Execute/Clear/Stop stay visible
+while scrolling the controls.
 
 The clouds are colored by calibrated reflectivity on Ouster's fixed 0-100
 scale (diffuse reflectance in percent; retroreflectors take the top color).
@@ -238,6 +274,7 @@ make rates-check   # cloud rates, scan completeness, real-time factor
 make pick-check    # picks both parts in the running workcell (moves them)
 make imu-check     # with WRIST_IMU=true: wrist IMU against the arm's motion (moves the arm)
 make lidar-motion-check  # a box moving past both Ousters (adds and removes it)
+make moveit-check  # plan/preview/execute, tool/joint targets, scene changes, and Stop (moves the arm)
 ```
 
 The three `smoke` commands start separate, temporary headless stacks with their own ROS
@@ -256,6 +293,27 @@ or displaced scans even when topics and TF names look valid. The Gazebo smoke
 checks include this registration check when Ousters are enabled.
 `lidar-motion-check` drives a box at 1 m/s past both Ousters and compares
 where each scan saw it with its pose at each point's timestamp.
+`moveit-check` verifies plan-only operation, the preview markers, single-use
+execution, collision-scene invalidation, input validation, Cartesian and joint
+targets, cancellation before the target is reached, and the existing named
+motions. It briefly adds and removes a far-away planning obstacle and returns
+the arm home. To test an explicit pick destination:
+
+```sh
+docker compose exec --user ros dev /usr/local/bin/ros-shell.sh \
+  python3 scripts/check_pick.py --part pick_cube --destination drop
+```
+
+Panel interaction tests run with `cd lichtblick/moveit-panel && npm ci && npm test`;
+`make moveit-panel` rebuilds the checked-in extension package from its source.
+The bridge can also verify a plan-only command over the same WebSocket used by
+Lichtblick:
+
+```sh
+docker compose exec --user ros dev /usr/local/bin/ros-shell.sh \
+  python3 scripts/check_bridge.py --plan ready
+```
+
 To test motion publishing through the bridge as well (moves the simulated arm):
 
 ```sh

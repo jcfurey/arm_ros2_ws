@@ -77,11 +77,23 @@ x86-64 VM unless noted.
   layout in Workcell, Cameras and Plots tabs; only the open tab subscribes.
 * [BUGFIX]: the clouds are colored by calibrated reflectivity on Ouster's fixed 0-100 scale.
   Scaled to each scan's own range, static objects brightened and dimmed from scan to scan.
+* A MoveIt tab runs the local Arm MoveIt extension (``lichtblick/moveit-panel``, packaged by
+  ``make moveit-panel``). Its dropdown plans a named pose, a Cartesian tool pose or joint targets
+  without moving the arm, shows the tool path and goal robot on ``/motion/preview``, and executes
+  a plan once, after re-checking its start, the collision scene and every waypoint. It also runs
+  pick and place to a chosen destination and sets the motion speed.
+
+  - ``/motion/command`` accepts ``plan <pose>``, ``execute``, ``clear``, ``speed <scale>`` and
+    ``pick_to <part> <auto|drop|home>``; ``/motion/goal_pose`` and ``/motion/goal_joints`` take
+    tool and joint targets.
+  - ``stop`` also publishes MoveIt's ``stop`` execution event, because cancelling
+    ``ExecuteTrajectory`` in MoveIt 2.15 does not stop the controller.
 
 **Checks**
 
-* Add ``make rates-check``, ``pick-check``, ``camera-check``, ``imu-check`` and
-  ``lidar-motion-check``, a pick in the Gazebo smoke test, and gripper checks in
-  ``check_stack``.
+* Add ``make rates-check``, ``pick-check``, ``camera-check``, ``imu-check``,
+  ``lidar-motion-check`` and ``moveit-check``, a pick in the Gazebo smoke test, and gripper checks
+  in ``check_stack``. ``check_bridge.py --plan`` plans through the bridge without moving, and
+  ``check_pick.py --destination`` picks to an explicit place.
 * [BUGFIX]: camera rate checks subscribe to rendered images and reject missing streams and a
   stalled clock, and a pick check clears the previous pick's latched status.

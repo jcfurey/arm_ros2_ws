@@ -20,6 +20,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--world", default="workcell")
     parser.add_argument("--part", default="pick_cube")
+    parser.add_argument("--destination", choices=["auto", "home", "drop"], default="auto")
     args = parser.parse_args()
     scene = load_world(Path(get_package_share_directory("arm_bringup")) / "worlds" / (args.world + ".sdf"))
     drop = scene.frames[f"{args.part}_drop"][:2]
@@ -50,11 +51,12 @@ def main():
         start = pose["p"]
         # Same rule as workcell_ui: a part at its SDF pose goes to its drop
         # frame, and anywhere else goes back home.
-        target = drop if math.dist((start.x, start.y), home) < 0.03 else home
+        target = (drop if args.destination == "drop" else home if args.destination == "home"
+                  else drop if math.dist((start.x, start.y), home) < 0.03 else home)
         # A transient status may describe the previous run of this same pick.
         # Wait for a new status after publishing instead of accepting that result.
         status.clear()
-        command.publish(String(data=args.part))
+        command.publish(String(data=args.part if args.destination == "auto" else f"pick_to {args.part} {args.destination}"))
         until(lambda: status.get("pose") == args.part, 10, "the pick to start")
         steps = []
         def finished():

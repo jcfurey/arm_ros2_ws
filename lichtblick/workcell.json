@@ -87,6 +87,9 @@
         },
         "/robot/markers": {
           "visible": true
+        },
+        "/motion/preview": {
+          "visible": true
         }
       },
       "publish": {
@@ -463,6 +466,15 @@
           }
         },
         {
+          "title": "MoveIt",
+          "layout": {
+            "first": "3D!moveit",
+            "second": "Arm MoveIt.MoveIt controls!controls",
+            "direction": "row",
+            "splitPercentage": 65
+          }
+        },
+        {
           "title": "Cameras",
           "layout": {
             "first": {
@@ -495,6 +507,118 @@
           }
         }
       ]
+    },
+    "3D!moveit": {
+      "layers": {
+        "845139cb-26bc-40b3-8161-8ab60af4baf5": {
+          "visible": true,
+          "frameLocked": true,
+          "label": "Grid",
+          "instanceId": "845139cb-26bc-40b3-8161-8ab60af4baf5",
+          "layerId": "foxglove.Grid",
+          "size": 10,
+          "divisions": 10,
+          "lineWidth": 1,
+          "color": "#248eff",
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "order": 1
+        }
+      },
+      "cameraState": {
+        "perspective": true,
+        "distance": 4.5,
+        "phi": 59.999999999994884,
+        "thetaOffset": 45.0000000000023,
+        "targetOffset": [
+          0,
+          0,
+          0.8
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "fovy": 45,
+        "near": 0.01,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {
+        "meshUpAxis": "z_up",
+        "transforms": {
+          "showLabel": false,
+          "axisScale": 0.1,
+          "lineWidth": 0
+        }
+      },
+      "transforms": {},
+      "topics": {
+        "/sensor/lidar/ouster_rear/points": {
+          "visible": false,
+          "colorField": "reflectivity",
+          "colorMode": "colormap",
+          "colorMap": "turbo",
+          "stixelsEnabled": false,
+          "minValue": 0,
+          "maxValue": 100
+        },
+        "/sensor/lidar/ouster_front/points": {
+          "visible": false,
+          "colorField": "reflectivity",
+          "colorMode": "colormap",
+          "colorMap": "turbo",
+          "stixelsEnabled": false,
+          "minValue": 0,
+          "maxValue": 100
+        },
+        "/robot_description": {
+          "visible": false
+        },
+        "/scene/markers": {
+          "visible": true
+        },
+        "/robot/markers": {
+          "visible": true
+        },
+        "/motion/preview": {
+          "visible": true
+        },
+        "/motion/tool_pose": {
+          "visible": true
+        }
+      },
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": {},
+      "followTf": "world",
+      "lichtblickPanelTitle": "MoveIt preview \u00b7 cyan path and goal robot"
+    },
+    "Arm MoveIt.MoveIt controls!controls": {
+      "lichtblickPanelTitle": "MoveIt",
+      "mode": "named"
     }
   },
   "globalVariables": {},
