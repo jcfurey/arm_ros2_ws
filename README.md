@@ -66,9 +66,9 @@ python3 scripts/package_moveit_panel.py --install  # installs in the desktop app
 Reload the desktop app after installing, then import
 [`lichtblick/workcell.json`](lichtblick/workcell.json). In the web app, open
 **Extensions → Install local extension** and select
-[`workspace.arm-moveit-0.1.0.foxe`](lichtblick/workspace.arm-moveit-0.1.0.foxe),
+[`workspace.arm-moveit-0.1.1.foxe`](lichtblick/workspace.arm-moveit-0.1.1.foxe),
 also served at
-`http://localhost:8080/layouts/workspace.arm-moveit-0.1.0.foxe`, then reopen
+`http://localhost:8080/layouts/workspace.arm-moveit-0.1.1.foxe`, then reopen
 `make lichtblick`. The package has no runtime or build dependencies. The
 existing Workcell, Cameras, and Plots panels work without the extension.
 
@@ -78,6 +78,17 @@ not move the arm. The execute step checks the robot's start, the collision
 scene, and every trajectory waypoint; moving the arm, changing speed, or
 changing collision geometry clears the saved plan. A plan can execute once.
 **Clear** removes a preview; **Stop** cancels the active motion and clears it.
+Stop is sent whenever the panel is connected, even when the status display has
+gone stale, and goes to MoveIt's trajectory executor as well as to the
+workcell node.
+
+A target is checked before the planner runs: one out of the arm's reach, or
+one the arm can only reach in collision, fails within a second with that
+reason instead of after the planner's five. If MoveIt stops answering, the
+operation ends by itself with "MoveIt has not answered" after 20 s (5 s after
+Stop), and the panel accepts commands again. With `make perception` the live
+occupancy map changes several times a second; it does not clear a saved plan,
+because Execute checks every waypoint against the current map anyway.
 
 **Cartesian tool pose** uses `world` coordinates in metres and roll/pitch/yaw
 in degrees; **Use current pose** fills the fields from MoveIt's FK. This is a
@@ -258,13 +269,17 @@ blocked goal without executing it.
 
 ## Verify planning and execution
 
-The bootstrap preservation tests use disposable local Git repositories:
+`make test` runs everything that needs no running stack: the scene, pick and
+motion-panel unit tests and the bootstrap tests (which use disposable local
+Git repositories) in the dev image, a check that the packaged `.foxe` matches
+its source, and the panel's interaction tests in a Node image. Inside any
+sourced ROS with `moveit_msgs`, `bash scripts/test.sh` runs the first three.
+CI (`.github/workflows/ci.yaml`) runs these on every push and pull request,
+then builds the image and runs the mock smoke test and the Gazebo smoke test,
+the latter once more with the occupancy map enabled.
 
 ```sh
-python3 -m unittest discover -s scripts -p test_bootstrap.py -v
-```
-
-```sh
+make test          # unit tests, packaged panel, panel interaction tests
 make smoke-mock
 make smoke
 make smoke-obstacles
@@ -275,14 +290,17 @@ make pick-check    # picks both parts in the running workcell (moves them)
 make imu-check     # with WRIST_IMU=true: wrist IMU against the arm's motion (moves the arm)
 make lidar-motion-check  # a box moving past both Ousters (adds and removes it)
 make moveit-check  # plan/preview/execute, tool/joint targets, scene changes, and Stop (moves the arm)
+make perception-check  # with `make perception`: the occupancy map sees and forgets an unknown box (adds and removes it)
 ```
 
 The three `smoke` commands start separate, temporary headless stacks with their own ROS
 domain. It checks that both controllers are active and all six joint states
 arrive, asks MoveIt to plan **and execute** `ready`, `sweep` (xArm6), and `home`, and checks the
-measured joint positions, and closes and opens the gripper. The Gazebo
+measured joint positions, and closes and opens the gripper. Each also runs
+the unit tests after building, and `moveit-check` against its own stack. The Gazebo
 check also requires an advancing `/clock`, and in the workcell it picks the
 cube and checks in Gazebo that it landed upright at its drop frame.
+`ENABLE_PERCEPTION=true make smoke` adds `perception-check`.
 The test stops its stack when complete. It shares the build volumes with the
 main service, so run builds and smoke checks sequentially.
 
@@ -295,17 +313,22 @@ checks include this registration check when Ousters are enabled.
 where each scan saw it with its pose at each point's timestamp.
 `moveit-check` verifies plan-only operation, the preview markers, single-use
 execution, collision-scene invalidation, input validation, Cartesian and joint
-targets, cancellation before the target is reached, and the existing named
+targets, that an unreachable tool target is refused at once with its reason,
+cancellation before the target is reached, and the existing named
 motions. It briefly adds and removes a far-away planning obstacle and returns
-the arm home. To test an explicit pick destination:
+the arm home. `perception-check` requires both filtered clouds to arrive and a
+preview to survive the changing map, then spawns a 0.3 m box that MoveIt has
+no collision object for, requires the map to fill it, removes it, and requires
+the map to clear. To test an explicit pick destination:
 
 ```sh
 docker compose exec --user ros dev /usr/local/bin/ros-shell.sh \
   python3 scripts/check_pick.py --part pick_cube --destination drop
 ```
 
-Panel interaction tests run with `cd lichtblick/moveit-panel && npm ci && npm test`;
-`make moveit-panel` rebuilds the checked-in extension package from its source.
+Panel interaction tests alone run with `cd lichtblick/moveit-panel && npm ci && npm test`;
+`make moveit-panel` rebuilds the checked-in extension package from its source,
+and `python3 scripts/package_moveit_panel.py --check` fails when the two differ.
 The bridge can also verify a plan-only command over the same WebSocket used by
 Lichtblick:
 
@@ -343,7 +366,8 @@ src/
 .gitmodules           # upstream URLs and tracking branches; Git records revisions
 third_party/          # UFACTORY attribution and license
 docker/               # ROS environment setup
-scripts/              # bootstrap, build, demo, and smoke-test entry points
+scripts/              # bootstrap, build, demo, test, and smoke-test entry points
+.github/workflows/    # CI: unit tests, panel tests, image build, smoke tests
 ```
 
 Edit files on macOS. The repository is mounted at `/ws`; `build`, `install`, and
@@ -468,8 +492,19 @@ make perception              # live dual-cloud occupancy integration
 
 Occupancy mapping is opt-in. The known static SDF obstacles are always present
 in MoveIt. With perception enabled, `sensors_3d.yaml` adds both clouds to a
-4 cm octomap with robot self-filtering. Restart the stack to clear accumulated
-occupancy after changing world geometry.
+4 cm octomap with robot self-filtering. MoveIt leaves out points that fall on
+the robot or on a collision object it already has, so in the stock workcell,
+where every surface is modelled, the map holds free space and no occupied
+cells; it fills where the lidars see something MoveIt was not told about.
+`make perception-check` proves that with a temporary box. Geometry that goes
+away is cleared as the beams pass through where it was (the check's box clears
+in a few seconds); restart the stack to drop the whole map.
+
+The updater comes from `ros-lyrical-moveit-ros-perception`, which the image
+installs. An image built before that was added runs `make perception` without
+a map, because MoveIt only logs an error when the plugin is missing; rebuild
+it with `make image`. The launch now refuses `perception:=true` when the
+package is absent.
 
 This integration simulates the xArm6 and gripper only, without a physical
 robot driver. No robot IP address is used. Physical hardware support requires

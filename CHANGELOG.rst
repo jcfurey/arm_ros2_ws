@@ -56,6 +56,9 @@ x86-64 VM unless noted.
 * Retroreflectors encode on Ouster's calibrated reflectivity scale, where byte 255 is 864x a
   white target, and ``base_reflectivity`` reads back as the byte it names (53 and 59 read one
   low). Neither changes the workcell, which has no retroreflectors and keeps the default 50.
+* The Ouster plugin no longer thins smoke returns through its depth-edge filter, rejects a
+  mistyped ``hardware_revision``, publishes metadata and IMU in panels mode before its render
+  rig exists, and reports a sensor it cannot find. None changes the workcell's clouds.
 * [BUGFIX]: clouds are stamped from their packets' simulation time (``TIME_FROM_INTERNAL_OSC``).
   Stamped on arrival, they were 6.2 ms early on average and up to 30 ms off.
 * Moving geometry appears at each point's own time: a mean lag of 0.4-0.6 ms, from 46-55 ms
@@ -89,8 +92,49 @@ x86-64 VM unless noted.
   - ``stop`` also publishes MoveIt's ``stop`` execution event, because cancelling
     ``ExecuteTrajectory`` in MoveIt 2.15 does not stop the controller.
 
+**Occupancy map (make perception)**
+
+* [BUGFIX]: ``make perception`` built no occupancy map. The image lacked
+  ``ros-lyrical-moveit-ros-perception``, which the ``moveit`` metapackage does not pull in on
+  Lyrical, and MoveIt only logs "Failed to load sensor" when the updater plugin is missing. The
+  image installs it (rebuild with ``make image``), ``arm_moveit_config`` declares it, and the
+  launch refuses ``perception:=true`` without it.
+* ``make perception-check`` proves the map works: both filtered clouds arrive, a planned preview
+  survives the changing map, and a 0.3 m box MoveIt has no collision object for fills about 100
+  cells of the map, which clear within 5 s of its removal. MoveIt leaves out points on the
+  robot and on known collision objects, so the stock workcell maps free space only; that is by
+  design and the README says so.
+
+**MoveIt panel 0.1.1**
+
+* [BUGFIX]: with the occupancy map live, a planned preview was cleared within 0.2 s and a third
+  of plans failed with "Collision scene changed during planning": the panel compared the whole
+  planning scene, and the map changes several times a second. The comparison leaves the map
+  out, and Execute still checks every waypoint against the current scene, map included.
+* [BUGFIX]: ``workcell_ui`` uses 8% of a core when idle instead of 17%. It took every 99 Hz
+  ``/joint_states`` message through its executor and subscribed to
+  ``/monitored_planning_scene``; it now reads the latest joint state at 10 Hz without spinning
+  for it and asks MoveIt for the scene at 2 Hz.
+* [BUGFIX]: an operation whose MoveIt request is never answered (MoveIt crashed or hung) left the
+  panel busy until the stack was restarted. It now ends with "MoveIt has not answered" after
+  20 s, or 5 s after Stop, and answers that arrive later are ignored.
+* [BUGFIX]: Stop is sent whenever the panel is connected. It was disabled once the status was
+  more than 4 s old, which is when it is most needed. The panel also publishes MoveIt's
+  ``stop`` execution event itself, so a stuck ``workcell_ui`` cannot swallow it.
+* An unreachable tool target, or a target reachable only in collision, fails within a second
+  with that reason (0.2-0.3 s for one out of reach). Planning sampled for its whole 5 s and
+  reported only that no plan was found.
+* [BUGFIX]: "plan again" hints no longer linger after a speed change with no preview, an idle
+  Stop or a successful move.
+
 **Checks**
 
+* Add ``make test`` (``scripts/test.sh`` in the dev image plus the panel's Node tests) and CI
+  in ``.github/workflows/ci.yaml``: unit tests, the packaged panel, the panel's interaction
+  tests, then an image build with the mock smoke test and the Gazebo smoke test, the latter
+  again with the occupancy map. The smoke tests run the unit tests and ``moveit-check`` too.
+* ``python3 scripts/package_moveit_panel.py --check`` fails when the checked-in ``.foxe``
+  differs from its source.
 * Add ``make rates-check``, ``pick-check``, ``camera-check``, ``imu-check``,
   ``lidar-motion-check`` and ``moveit-check``, a pick in the Gazebo smoke test, and gripper checks
   in ``check_stack``. ``check_bridge.py --plan`` plans through the bridge without moving, and
