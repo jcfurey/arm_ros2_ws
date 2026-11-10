@@ -41,8 +41,15 @@ def camera_bridges(name):
     ]
     # Lazy entries subscribe to Gazebo only while a ROS subscriber exists, and
     # Gazebo renders a camera only while it has a subscriber.
-    return [{"gz_topic_name": f"{gz}/{g}", "ros_topic_name": f"{ros}/{r}", "ros_type_name": rt,
-             "gz_type_name": gt, "direction": "GZ_TO_ROS", "lazy": True} for g, r, rt, gt in topics]
+    bridges = [{"gz_topic_name": f"{gz}/{g}", "ros_topic_name": f"{ros}/{r}", "ros_type_name": rt,
+                "gz_type_name": gt, "direction": "GZ_TO_ROS", "lazy": True} for g, r, rt, gt in topics]
+    for bridge in bridges:
+        if bridge["ros_type_name"] == "sensor_msgs/msg/PointCloud2":
+            # Gazebo's native cloud is X-forward, Y-left, Z-up. Its XYZ
+            # bytes are not optical coordinates, even when gz_frame_id is
+            # the optical frame used by images and CameraInfo.
+            bridge["frame_id"] = "camera_depth_frame" if name == "wrist" else f"{name}_camera_depth_frame"
+    return bridges
 
 
 def launch_setup(context):

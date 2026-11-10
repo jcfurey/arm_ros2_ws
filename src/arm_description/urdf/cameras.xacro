@@ -7,7 +7,9 @@
   Gazebo topics  /camera/<name>/color/{image,camera_info}
                  /camera/<name>/depth/{image,camera_info,image/points}
                  /camera/<name>/imu   (D435i, with wrist_imu)
-  frame_id       the optical frame of each imager (z forward, x right, y down)
+  Image/CameraInfo frame_id: optical (z forward, x right, y down).
+  Gazebo's native cloud XYZ uses the body frame (x forward, y left, z up);
+  the ROS bridge labels depth/points with that imager's body frame.
 
   Separate sensors rather than one rgbd_camera keep each imager's field of
   view and position. Gazebo renders a sensor only while something subscribes

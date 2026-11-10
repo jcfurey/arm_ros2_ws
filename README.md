@@ -135,7 +135,10 @@ The cameras publish realsense-ros style topics under `/camera/wrist` and
   D435i (50 mm baseline) and 2.5 mm on the overhead D455 (95 mm).
   `arm_bringup/realsense_depth` adds it to Gazebo's ideal depth.
 - `depth/image_meters`: that ideal depth, as 32-bit float metres, for ground
-  truth. `depth/points` is computed from it.
+  truth. `depth/points` is computed from it and uses the depth imager's
+  X-forward body frame: `camera_depth_frame` on the wrist and
+  `overhead_camera_depth_frame` overhead. Images and calibration use their
+  Z-forward optical frames; TF connects both coordinate conventions.
 - `depth/camera_info`.
 
 Each imager has its own field of view and optical frame, placed as in
@@ -145,7 +148,8 @@ and render together. The wrist D435i sits on UFACTORY's camera stand with
 its frame names; the overhead D455 is 2.1 m above the bench. Gazebo renders a
 camera only while something subscribes to it, so unwatched cameras cost no
 simulation time. `make camera-check` compares each depth stream with its
-ideal depth and the error model.
+ideal depth and the error model, and checks that each cloud's XYZ, transformed
+through TF, projects onto the matching depth pixels and camera calibration.
 
 The wrist D435i's IMU is off by default; `WRIST_IMU=true make up` (or
 `wrist_imu:=true`) adds `/camera/wrist/imu`, a `sensor_msgs/Imu` at 200 Hz
