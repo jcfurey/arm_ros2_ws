@@ -7,6 +7,8 @@ import time
 
 import websocket
 from ament_index_python.packages import get_package_share_directory
+from rclpy.serialization import deserialize_message
+from tf2_msgs.msg import TFMessage
 
 
 def main():
@@ -33,6 +35,10 @@ def main():
                 raise
             time.sleep(0.5)
     subscriptions, received = {}, set()
+    static_edges = set()
+    sensor_mounts = {("world", "sensor_rig"),
+                     ("sensor_rig", "ouster_front/lidar_frame"),
+                     ("sensor_rig", "ouster_rear/lidar_frame")}
     # The robot description references the simplified copies of UFACTORY's meshes.
     assets = {
         1: "package://arm_description/meshes/sim/xarm6/visual/link_base.stl",
@@ -42,7 +48,7 @@ def main():
     command_sent = motion_started = False
     target = args.pose or args.plan
     if target:
-        from rclpy.serialization import deserialize_message, serialize_message
+        from rclpy.serialization import serialize_message
         from std_msgs.msg import String
     try:
         deadline = time.monotonic() + 90
@@ -80,7 +86,19 @@ def main():
                 if message[0] == 1 and len(message) > 13:
                     subscription = struct.unpack_from("<I", message, 1)[0]
                     if subscription in subscriptions:
-                        received.add(subscriptions[subscription])
+                        topic = subscriptions[subscription]
+                        if topic == "/tf_static":
+                            # A panel opened after a tab change can receive
+                            # just the last cached message on this topic.
+                            # Check one snapshot, rather than the union of
+                            # partial messages from separate TF publishers.
+                            transforms = deserialize_message(message[13:], TFMessage).transforms
+                            static_edges = {(t.header.frame_id, t.child_frame_id) for t in transforms}
+                            robot_mount = any(("world", base) in static_edges for base in ("link_base", "base_link"))
+                            if robot_mount and (args.no_ousters or sensor_mounts <= static_edges):
+                                received.add(topic)
+                        else:
+                            received.add(topic)
                         if target and command_sent and subscriptions[subscription] == "/motion/status":
                             status = json.loads(deserialize_message(message[13:], String).data)
                             if status.get("pose") == target:
@@ -103,6 +121,7 @@ def main():
                 if not command_sent:
                     print("PASS: Foxglove WebSocket schemas, clock, TF, scene, robot, status, and sensor streams")
                     print("PASS: package:// and file:// robot mesh assets fetched through the bridge")
+                    print("PASS: robot and sensor world mounts share one retained static TF snapshot")
                     if not target:
                         return
                     command = f"plan {target}" if args.plan else target
@@ -111,7 +130,8 @@ def main():
                     deadline = time.monotonic() + 60
         if command_sent:
             raise RuntimeError(f"No successful motion status for bridge-published {target} command")
-        raise RuntimeError(f"Missing bridge streams: {required - received}; mesh assets: {assets_received}")
+        raise RuntimeError(f"Missing bridge streams: {required - received}; mesh assets: {assets_received}; "
+                           f"latest static TF snapshot: {sorted(static_edges)}")
     finally:
         connection.close()
 

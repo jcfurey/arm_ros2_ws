@@ -710,8 +710,13 @@ domain `42`, and localhost discovery inside the same container.
   `make bridge-check` to test mesh retrieval and streamed ROS data.
 - **Arm meshes look disconnected:** set **3D → Scene → Mesh up axis → Z-up**
   and reload Lichtblick. Keep only one robot visual display enabled.
-- **Missing transforms after switching layouts:** reload Lichtblick (Cmd-R)
-  to resubscribe to the latched `/tf_static` transforms.
+- **Missing transforms after switching tabs:** confirm `/static_transforms`
+  is running and `/tf_static` has one publisher. The launch combines the
+  robot and sensor mounts from `/_tf_static_sources` into one complete
+  retained message. Lichtblick can cache only the last message on a topic
+  when a new panel opens, so separate partial snapshots can disconnect the
+  sensors from `world` in the viewer. Rebuild/restart older stacks and reload
+  Lichtblick once. `make bridge-check` verifies a complete snapshot.
 - **Slow simulation:** run `make rates-check` for the real-time factor and
   sensor rates. Close camera views you are not using, or set
   `ENABLE_CAMERAS=false`; reduce `LIDAR_HZ`; give Docker Desktop more CPUs.

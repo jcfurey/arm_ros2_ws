@@ -14,6 +14,7 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from moveit_configs_utils import MoveItConfigsBuilder
 from arm_bringup.scene import load_world
+from arm_bringup.static_tf import STATIC_TF_SOURCES
 import xacro
 import yaml
 
@@ -118,9 +119,12 @@ def launch_setup(context):
         portable = portable.replace("file://" + get_package_share_directory(package) + "/", f"package://{package}/")
     config.robot_description = {"robot_description": portable}
     common = {"use_sim_time": sim}
+    # Panels may cache one message per topic. Retain both URDFs and the rig
+    # mount together, so reopening a panel cannot discard a fixed subtree.
+    static_tf_remap = [("/tf_static", STATIC_TF_SOURCES)]
     state_publisher = Node(
         package="robot_state_publisher", executable="robot_state_publisher",
-        parameters=[config.robot_description, common], output="screen",
+        parameters=[config.robot_description, common], remappings=static_tf_remap, output="screen",
     )
     move_group = Node(
         package="moveit_ros_move_group", executable="move_group",
@@ -162,6 +166,7 @@ def launch_setup(context):
         return [ui_node, *([rviz_node] if rviz else [])]
 
     actions = [
+        Node(package="arm_bringup", executable="static_tf", parameters=[common], output="screen"),
         state_publisher,
         RegisterEventHandler(OnProcessExit(target_action=spawner, on_exit=after_controllers)),
         RegisterEventHandler(OnProcessExit(target_action=scene_loader, on_exit=after_scene)),
@@ -201,10 +206,10 @@ def launch_setup(context):
             Node(package="robot_state_publisher", executable="robot_state_publisher",
                  name="sensor_rig_state_publisher",
                  parameters=[{"robot_description": sensor_description}, common],
-                 remappings=[("robot_description", "/sensor_rig/robot_description")], output="screen"),
+                 remappings=[("robot_description", "/sensor_rig/robot_description"), *static_tf_remap], output="screen"),
             Node(package="tf2_ros", executable="static_transform_publisher", name="sensor_rig_mount",
                  arguments=["--frame-id", "world", "--child-frame-id", "sensor_rig"],
-                 parameters=[common], output="screen"),
+                 parameters=[common], remappings=static_tf_remap, output="screen"),
             Node(package="ros_gz_sim", executable="create", name="spawn_sensor_rig",
                  arguments=["-name", "workcell_sensors", "-topic", "/sensor_rig/robot_description", "-world", scene.name],
                  output="screen"),
@@ -215,7 +220,7 @@ def launch_setup(context):
         for name in ["ouster_front", "ouster_rear"]:
             actions.append(Node(
                 package="ouster_ros", executable="os_cloud", name="os_cloud",
-                namespace=f"/sensor/lidar/{name}", output="screen",
+                namespace=f"/sensor/lidar/{name}", remappings=static_tf_remap, output="screen",
                 parameters=[common, {
                     "proc_mask": "PCL", "point_cloud_frame": f"{name}/lidar_frame",
                     # cam_wip's ranges target the identity XYZ LUT. Distinct sensor_frame
