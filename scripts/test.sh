@@ -5,5 +5,5 @@
 set -eo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 PYTHONPATH="$PWD/src/arm_bringup${PYTHONPATH:+:$PYTHONPATH}" \
-    python3 -m pytest -q -p no:cacheprovider src/arm_bringup/test scripts/test_bootstrap.py
+    python3 -m pytest -q -p no:cacheprovider src/arm_bringup/test scripts/test_bootstrap.py scripts/test_stop.py
 python3 scripts/package_moveit_panel.py --check

@@ -1,11 +1,12 @@
 default_velocity_scaling_factor: 0.25
 default_acceleration_scaling_factor: 0.25
 # Conservative simulation limits, below the manufacturer's URDF velocity limits.
+# MoveIt's joint-limit service expects the optional jerk-limit flag explicitly.
 joint_limits:
-  joint1: {has_velocity_limits: true, max_velocity: 1.5, has_acceleration_limits: true, max_acceleration: 2.0}
-  joint2: {has_velocity_limits: true, max_velocity: 1.5, has_acceleration_limits: true, max_acceleration: 2.0}
-  joint3: {has_velocity_limits: true, max_velocity: 1.5, has_acceleration_limits: true, max_acceleration: 2.0}
-  joint4: {has_velocity_limits: true, max_velocity: 1.5, has_acceleration_limits: true, max_acceleration: 2.0}
-  joint5: {has_velocity_limits: true, max_velocity: 1.5, has_acceleration_limits: true, max_acceleration: 2.0}
-  joint6: {has_velocity_limits: true, max_velocity: 1.5, has_acceleration_limits: true, max_acceleration: 2.0}
-  drive_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: true, max_acceleration: 10.0}
+  joint1: {has_velocity_limits: true, max_velocity: 1.5, has_acceleration_limits: true, max_acceleration: 2.0, has_jerk_limits: false}
+  joint2: {has_velocity_limits: true, max_velocity: 1.5, has_acceleration_limits: true, max_acceleration: 2.0, has_jerk_limits: false}
+  joint3: {has_velocity_limits: true, max_velocity: 1.5, has_acceleration_limits: true, max_acceleration: 2.0, has_jerk_limits: false}
+  joint4: {has_velocity_limits: true, max_velocity: 1.5, has_acceleration_limits: true, max_acceleration: 2.0, has_jerk_limits: false}
+  joint5: {has_velocity_limits: true, max_velocity: 1.5, has_acceleration_limits: true, max_acceleration: 2.0, has_jerk_limits: false}
+  joint6: {has_velocity_limits: true, max_velocity: 1.5, has_acceleration_limits: true, max_acceleration: 2.0, has_jerk_limits: false}
+  drive_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: true, max_acceleration: 10.0, has_jerk_limits: false}

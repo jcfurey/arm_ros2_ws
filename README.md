@@ -661,17 +661,29 @@ rosdep install --from-paths $(colcon list --packages-up-to arm_bringup --paths-o
 CMAKE_BUILD_PARALLEL_LEVEL=4 MAKEFLAGS=-j4 colcon build --symlink-install \
   --packages-up-to arm_bringup --parallel-workers 2
 source install/setup.bash
-export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-export ROS_DOMAIN_ID=42
-export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
-export CYCLONEDDS_URI="file://$PWD/docker/cyclonedds.xml"
-export OMP_NUM_THREADS=2 OMP_WAIT_POLICY=PASSIVE
-ros2 launch arm_bringup demo.launch.py
-# Options: robot:=demo / mode:=mock / world:=obstacle_course / ousters:=false
 ```
 
-With Lichtblick Desktop installed, install the MoveIt extension and open
-the workcell layout connected to the native stack:
+For subsequent starts, run this single command from the workspace:
+
+```bash
+bash scripts/start.sh
+```
+
+The launcher sources ROS and the workspace, configures Cyclone DDS on domain
+`42`, and starts Gazebo, the robot controllers, MoveIt, cameras, lidars, and
+Foxglove Bridge. It builds automatically if `install/setup.bash` is missing;
+use `bash scripts/start.sh --build` to rebuild after C++ changes. It stays in
+the terminal, and **Ctrl-C stops the entire ROS/Gazebo process group**.
+It prints the connection address and leaves opening Lichtblick Desktop to you.
+
+To stop it from another terminal, run `./scripts/stop.sh`. The stop script
+targets this checkout's launcher and its ROS/Gazebo descendants; it also
+works for a direct `ros2 launch arm_bringup demo.launch.py` started from this
+workspace.
+
+In Lichtblick Desktop, choose **File → Open connection → Foxglove WebSocket**
+and enter **`ws://localhost:8765`**. The MoveIt extension and imported workcell
+layout persist between runs. For a first-time desktop setup:
 
 ```bash
 python3 scripts/package_moveit_panel.py --install
@@ -685,11 +697,44 @@ to load the extension.
 
 For the browser interface, start just the Lichtblick service in another
 terminal with `docker compose up -d --no-deps lichtblick`, then run
-`make lichtblick`. The ROS stack remains in the native terminal; Ctrl-C
-stops it. Source `install/setup.bash` and use the same environment exports
-in any terminal running ROS checks, such as
+`make lichtblick`. The ROS stack remains in the launcher terminal.
+
+Launch arguments and environment settings can be overridden:
+
+```bash
+bash scripts/start.sh perception:=true  # live occupancy map from both Ousters
+bash scripts/start.sh --cuda perception:=true  # native NVIDIA build + live map
+bash scripts/start.sh world:=obstacle_course cameras:=false
+SIM_MODE=mock bash scripts/start.sh
+```
+
+With `perception:=true`, MoveIt integrates both lidar clouds into its 4 cm
+occupancy map at up to 2 Hz per sensor, filtering the robot and known scene
+objects. An 8 cm self-filter margin keeps noisy robot returns from occupying
+cells that touch the robot. The map participates in collision checking when
+planning and executing motions. To verify that an unknown object is detected and later
+cleared, run `python3 scripts/check_perception.py` from a ROS-configured
+terminal as described below; the check adds and removes a temporary box in
+Gazebo.
+
+`--cuda` selects `colcon.cuda.meta` for a native NVIDIA build and rebuilds
+before launching. The default build profile targets CPU execution, including
+Apple Silicon containers. The CUDA build chooses an installed toolkit and
+prints its compiler path; set `CUDACXX` to select one explicitly. This host's
+RTX 3090 was verified with CUDA 13.3 and GCC 15; its older `/usr/bin/nvcc`
+12.4 does not support that host compiler. Use `--cuda` when rebuilding the
+NVIDIA configuration; `--build` selects the default CPU profile.
+
+For ROS checks in another terminal, source `/opt/ros/lyrical/setup.bash` and
+`install/setup.bash`, and set `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`,
+`ROS_DOMAIN_ID=42`, `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`, and
+`CYCLONEDDS_URI="file://$PWD/docker/cyclonedds.xml"`. Then run checks such as
 `ros2 run arm_bringup check_stack --ousters` or
 `python3 scripts/check_bridge.py`.
+To require sustained 10 Hz lidar delivery and near-real-time simulation, run
+`python3 scripts/check_rates.py --min-hz 10 --min-rtf 0.98`. The Ouster packet
+drain measures consecutive produced scans before its pending-frame queue;
+skipped frames do not lengthen later delivery schedules after congestion.
 
 Native host ROS nodes are not automatically connected to ROS nodes inside
 Docker Desktop. Use `make shell` for CLI tools; all demo nodes use Cyclone DDS,

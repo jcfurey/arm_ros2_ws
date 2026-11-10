@@ -1,0 +1,15 @@
+{
+  "names": {
+    "gz_sensors_ouster": {
+      "cmake-args": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DBUILD_TESTING=OFF",
+        "-DGZ_GPU_OUSTER_USE_CUDA=ON",
+        "-DGZ_GPU_OUSTER_USE_HIP=OFF",
+        "-DGZ_GPU_OUSTER_USE_SYCL=OFF",
+        "-DCMAKE_CUDA_ARCHITECTURES=native",
+        "-DGZ_OUSTER_CUDA_ARCHS_USER_SET=ON"
+      ]
+    }
+  }
+}
