@@ -634,17 +634,58 @@ use for native macOS development. It currently provides RViz and xacro but
 lacks the MoveIt/Gazebo/control packages required by this demo. The container
 provides those dependencies without changing the native installation.
 
-On a Linux host or VM with a complete Lyrical installation:
+On an Ubuntu 26.04 Linux host or VM with ROS 2 Lyrical installed, the
+workspace can run natively. Install MoveIt, Gazebo's control plugin, and the
+controllers (these are already included in the Docker image):
+
+```bash
+sudo apt update
+sudo apt install ros-lyrical-moveit ros-lyrical-moveit-configs-utils \
+  ros-lyrical-moveit-ros-perception ros-lyrical-gz-ros2-control \
+  ros-lyrical-ros2-controllers python3-websocket
+```
+
+Build only the workcell and its dependencies. This also works with a full
+xArm checkout, without building its hardware drivers or Gazebo Classic
+packages:
 
 ```bash
 source /opt/ros/lyrical/setup.bash
 python3 scripts/bootstrap.py
-rosdep install --from-paths src --ignore-src --rosdistro lyrical -y
-bash scripts/build.sh
+rosdep install --from-paths $(colcon list --packages-up-to arm_bringup --paths-only) \
+  --ignore-src --rosdistro lyrical -y
+CMAKE_BUILD_PARALLEL_LEVEL=4 MAKEFLAGS=-j4 colcon build --symlink-install \
+  --packages-up-to arm_bringup --parallel-workers 2
 source install/setup.bash
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export ROS_DOMAIN_ID=42
+export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+export CYCLONEDDS_URI="file://$PWD/docker/cyclonedds.xml"
+export OMP_NUM_THREADS=2 OMP_WAIT_POLICY=PASSIVE
 ros2 launch arm_bringup demo.launch.py
 # Options: robot:=demo / mode:=mock / world:=obstacle_course / ousters:=false
 ```
+
+With Lichtblick Desktop installed, install the MoveIt extension and open
+the workcell layout connected to the native stack:
+
+```bash
+python3 scripts/package_moveit_panel.py --install
+lichtblick --ds=foxglove-websocket --ds.url=ws://localhost:8765 \
+  "$PWD/lichtblick/workcell.json"
+```
+
+After importing the layout once, omit the JSON argument to reuse the saved
+layout. If Lichtblick was open when the extension was installed, restart it
+to load the extension.
+
+For the browser interface, start just the Lichtblick service in another
+terminal with `docker compose up -d --no-deps lichtblick`, then run
+`make lichtblick`. The ROS stack remains in the native terminal; Ctrl-C
+stops it. Source `install/setup.bash` and use the same environment exports
+in any terminal running ROS checks, such as
+`ros2 run arm_bringup check_stack --ousters` or
+`python3 scripts/check_bridge.py`.
 
 Native host ROS nodes are not automatically connected to ROS nodes inside
 Docker Desktop. Use `make shell` for CLI tools; all demo nodes use Cyclone DDS,
