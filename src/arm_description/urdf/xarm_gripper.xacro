@@ -1,0 +1,139 @@
+<?xml version="1.0"?>
+<!--
+  UFACTORY xArm Gripper (G1) for gz-sim and mock ros2_control.
+
+  Kinematics, inertials and visual meshes are UFACTORY's (xarm_description
+  xarm_gripper.urdf.xacro; see third_party/ufactory/LICENSE). Two things
+  differ from that macro, which targets classic Gazebo mimic plugins:
+
+  * Collision uses primitives fitted to the meshes. Each finger collides
+    through a box covering its pad (32 x 14 x 46 mm); its inner face sits
+    where the mesh's does, so the 0-85 mm stroke is preserved. Primitive
+    contacts are cheaper than 5-24k triangle meshes and give stable grasps.
+  * Only drive_joint is in ros2_control. The five linkage joints keep their
+    URDF <mimic> tags: the world's Bullet Featherstone physics enforces them
+    as constraints (DART cannot; gz_ros2_control servoing them cost 18% of
+    real time), and robot_state_publisher and MoveIt derive them as well.
+  * drive_joint's effort is limited to the gripper's rated grip force instead
+    of the macro's 50 Nm. The linkage joints keep a high limit: on the real
+    gripper they are a rigid four-bar, and here the finger joints alone hold
+    each pad parallel, so a weak limit lets grip load tilt the pads open.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="xarm_gripper_box" params="xyz size">
+    <collision><origin xyz="${xyz}" rpy="0 0 0"/><geometry><box size="${size}"/></geometry></collision>
+  </xacro:macro>
+
+  <!-- mu1/mu2 reach DART and ODE. Bullet Featherstone reads only <bullet>
+       friction, which URDF cannot express, and defaults it to the same 1.0. -->
+  <xacro:macro name="xarm_gripper_friction" params="link">
+    <gazebo reference="${link}">
+      <mu1>1.0</mu1>
+      <mu2>1.0</mu2>
+      <minDepth>0.0005</minDepth>
+      <selfCollide>false</selfCollide>
+    </gazebo>
+  </xacro:macro>
+
+  <!-- effort: drive_joint torque limit [Nm]. 30 N at the pads over the ~55 mm
+       knuckle is ~1.6 Nm, the xArm Gripper's rated force. linkage_effort:
+       the passive joints' limit, UFACTORY's value. -->
+  <xacro:macro name="xarm_gripper" params="attach_to control_plugin effort:=1.6 linkage_effort:=50">
+    <xacro:property name="vel" value="2.0"/>
+    <joint name="gripper_fix" type="fixed">
+      <parent link="${attach_to}"/><child link="xarm_gripper_base_link"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+    <link name="xarm_gripper_base_link">
+      <inertial>
+        <origin xyz="-0.00065489 -0.0018497 0.048028" rpy="0 0 0"/>
+        <mass value="0.54156"/>
+        <inertia ixx="0.00047106" ixy="3.9292E-07" ixz="2.6537E-06"
+                 iyy="0.00033072" iyz="-1.0975E-05" izz="0.00025642"/>
+      </inertial>
+      <xacro:common_link_visual mesh_filename="gripper/xarm/base_link" material_name="White"/>
+      <xacro:xarm_gripper_box xyz="0 0 0.04705" size="0.075 0.1022 0.1121"/>
+    </link>
+
+    <xacro:macro name="knuckle" params="side sign">
+      <link name="${side}_outer_knuckle">
+        <inertial>
+          <origin xyz="0 ${sign * 0.021559} 0.015181" rpy="0 0 0"/>
+          <mass value="0.033618"/>
+          <inertia ixx="1.9111E-05" ixy="0" ixz="0" iyy="6.6256E-06"
+                   iyz="${-sign * 7.3008E-06}" izz="1.3185E-05"/>
+        </inertial>
+        <xacro:common_link_visual mesh_filename="gripper/xarm/${side}_outer_knuckle" material_name="Silver"/>
+        <xacro:xarm_gripper_box xyz="0 ${sign * 0.0128} 0.0202" size="0.0118 0.0774 0.0557"/>
+      </link>
+      <link name="${side}_finger">
+        <inertial>
+          <origin xyz="0 ${-sign * 0.016413} 0.029258" rpy="0 0 0"/>
+          <mass value="0.048304"/>
+          <inertia ixx="1.7493E-05" ixy="0" ixz="0" iyy="1.7225E-05"
+                   iyz="${sign * 4.6433E-06}" izz="5.1466E-06"/>
+        </inertial>
+        <xacro:common_link_visual mesh_filename="gripper/xarm/${side}_finger" material_name="Silver"/>
+        <xacro:xarm_gripper_box xyz="0 ${-sign * 0.019} 0.038" size="0.032 0.014 0.046"/>
+      </link>
+      <link name="${side}_inner_knuckle">
+        <inertial>
+          <origin xyz="0 ${sign * 0.022047} 0.026133" rpy="0 0 0"/>
+          <mass value="0.023013"/>
+          <inertia ixx="6.0949E-06" ixy="0" ixz="0" iyy="6.0196E-06"
+                   iyz="${-sign * 2.7532E-06}" izz="5.0786E-06"/>
+        </inertial>
+        <xacro:common_link_visual mesh_filename="gripper/xarm/${side}_inner_knuckle" material_name="Silver"/>
+        <xacro:xarm_gripper_box xyz="0 ${sign * 0.0177} 0.0210" size="0.0281 0.0474 0.054"/>
+      </link>
+      <xacro:xarm_gripper_friction link="${side}_finger"/>
+      <xacro:xarm_gripper_friction link="${side}_outer_knuckle"/>
+      <xacro:xarm_gripper_friction link="${side}_inner_knuckle"/>
+    </xacro:macro>
+    <xacro:knuckle side="left" sign="1"/>
+    <xacro:knuckle side="right" sign="-1"/>
+    <xacro:xarm_gripper_friction link="xarm_gripper_base_link"/>
+
+    <joint name="drive_joint" type="revolute">
+      <origin xyz="0 0.035 0.059098" rpy="0 0 0"/>
+      <parent link="xarm_gripper_base_link"/><child link="left_outer_knuckle"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="0" upper="0.85" effort="${effort}" velocity="${vel}"/>
+    </joint>
+    <xacro:macro name="mimic" params="name parent child xyz axis">
+      <joint name="${name}" type="revolute">
+        <origin xyz="${xyz}" rpy="0 0 0"/>
+        <parent link="${parent}"/><child link="${child}"/>
+        <axis xyz="${axis}"/>
+        <limit lower="0" upper="0.85" effort="${linkage_effort}" velocity="${vel}"/>
+        <mimic joint="drive_joint" multiplier="1" offset="0"/>
+      </joint>
+    </xacro:macro>
+    <xacro:mimic name="left_finger_joint" parent="left_outer_knuckle" child="left_finger"
+        xyz="0 0.035465 0.042039" axis="-1 0 0"/>
+    <xacro:mimic name="left_inner_knuckle_joint" parent="xarm_gripper_base_link" child="left_inner_knuckle"
+        xyz="0 0.02 0.074098" axis="1 0 0"/>
+    <xacro:mimic name="right_outer_knuckle_joint" parent="xarm_gripper_base_link" child="right_outer_knuckle"
+        xyz="0 -0.035 0.059098" axis="-1 0 0"/>
+    <xacro:mimic name="right_finger_joint" parent="right_outer_knuckle" child="right_finger"
+        xyz="0 -0.035465 0.042039" axis="1 0 0"/>
+    <xacro:mimic name="right_inner_knuckle_joint" parent="xarm_gripper_base_link" child="right_inner_knuckle"
+        xyz="0 -0.02 0.074098" axis="-1 0 0"/>
+
+    <link name="link_tcp"/>
+    <joint name="joint_tcp" type="fixed">
+      <origin xyz="0 0 0.172" rpy="0 0 0"/>
+      <parent link="xarm_gripper_base_link"/><child link="link_tcp"/>
+    </joint>
+
+    <ros2_control name="XArmGripperSystem" type="system">
+      <hardware><plugin>${control_plugin}</plugin></hardware>
+      <joint name="drive_joint">
+        <command_interface name="position"/>
+        <!-- The SRDF "open" state (85 mm). -->
+        <state_interface name="position"><param name="initial_value">0.045</param></state_interface>
+        <state_interface name="velocity"/>
+      </joint>
+    </ros2_control>
+  </xacro:macro>
+</robot>

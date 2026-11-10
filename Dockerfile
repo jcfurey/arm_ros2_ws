@@ -36,6 +36,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-foxglove-bridge python3-websocket \
     && rm -rf /var/lib/apt/lists/*
 
+# MoveIt's point-cloud occupancy map updater for `make perception`. On Lyrical
+# the moveit metapackage does not pull it in, and MoveIt only logs an error
+# when a configured updater plugin is missing.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-${ROS_DISTRO}-moveit-ros-perception \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN useradd --create-home --uid 1001 --shell /bin/bash ros \
     && echo 'ros ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/ros \
     && chmod 0440 /etc/sudoers.d/ros \

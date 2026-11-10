@@ -16,7 +16,11 @@ services:
       TEST_WORLD: ${TEST_WORLD:-workcell}
       ENABLE_OUSTERS: ${ENABLE_OUSTERS:-true}
       ENABLE_PERCEPTION: ${ENABLE_PERCEPTION:-false}
-      LIDAR_HZ: ${LIDAR_HZ:-3.0}
+      ENABLE_CAMERAS: ${ENABLE_CAMERAS:-true}
+      ENABLE_GRIPPER: ${ENABLE_GRIPPER:-true}
+      WRIST_IMU: ${WRIST_IMU:-false}
+      IMU_NOISE: ${IMU_NOISE:-true}
+      LIDAR_HZ: ${LIDAR_HZ:-10.0}
       SIM_MODE: ${SIM_MODE:-gazebo}
       GUI: ${GUI:-false}
       RVIZ: ${RVIZ:-false}
@@ -24,6 +28,9 @@ services:
       CMAKE_BUILD_PARALLEL_LEVEL: ${CMAKE_BUILD_PARALLEL_LEVEL:-1}
       MAKEFLAGS: ${MAKEFLAGS:--j1 -l2}
       OMP_NUM_THREADS: ${OMP_NUM_THREADS:-2}
+      # Idle raycast threads sleep instead of spinning against the sim thread.
+      OMP_WAIT_POLICY: ${OMP_WAIT_POLICY:-PASSIVE}
+      CYCLONEDDS_URI: ${CYCLONEDDS_URI:-file:///ws/docker/cyclonedds.xml}
     volumes:
       - .:/ws
       - colcon-build:/ws/build
@@ -31,6 +38,17 @@ services:
       - colcon-log:/ws/log
     command: ["bash", "/ws/scripts/start.sh"]
     stop_grace_period: 20s
+  # Lichtblick's web build. `make lichtblick` opens it connected to the bridge
+  # with the current lichtblick/workcell.json, served beside the app (a
+  # directory mount, so edits and checkouts show through); the same file is
+  # the layout a browser starts with, read when the container is created.
+  lichtblick:
+    image: ghcr.io/lichtblick-suite/lichtblick:1.30.0
+    ports:
+      - "127.0.0.1:${LICHTBLICK_PORT:-8080}:8080"
+    volumes:
+      - ./lichtblick:/src/layouts:ro
+      - ./lichtblick/workcell.json:/lichtblick/default-layout.json:ro
 
 volumes:
   colcon-build:

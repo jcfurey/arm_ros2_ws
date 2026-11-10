@@ -1,0 +1,16 @@
+{
+  "name": "arm-moveit",
+  "publisher": "workspace",
+  "displayName": "Arm MoveIt",
+  "version": "0.1.1",
+  "description": "Plan, preview and execute workcell motions, Cartesian and joint targets, and pick/place in Lichtblick.",
+  "license": "Apache-2.0",
+  "main": "dist/extension.js",
+  "scripts": {
+    "test": "node --test test/*.test.cjs",
+    "package": "python3 ../../scripts/package_moveit_panel.py"
+  },
+  "devDependencies": {
+    "happy-dom": "21.0.4"
+  }
+}

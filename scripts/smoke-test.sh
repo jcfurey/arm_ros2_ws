@@ -7,10 +7,13 @@ world=${3:-${TEST_WORLD:-workcell}}
 case "$mode" in gazebo|mock) ;; *) echo 'Expected gazebo or mock' >&2; exit 2 ;; esac
 bash scripts/build.sh
 source install/setup.bash
+bash scripts/test.sh
 launch_log=$(mktemp /tmp/arm-smoke.XXXXXX)
 ros2 launch arm_bringup demo.launch.py robot:="$robot" mode:="$mode" world:="$world" \
     ousters:="${ENABLE_OUSTERS:-true}" perception:="${ENABLE_PERCEPTION:-false}" \
-    lidar_hz:="${LIDAR_HZ:-3.0}" bridge:=false gui:=false rviz:=false > "$launch_log" 2>&1 &
+    cameras:="${ENABLE_CAMERAS:-true}" gripper:="${ENABLE_GRIPPER:-true}" \
+    wrist_imu:="${WRIST_IMU:-false}" imu_noise:="${IMU_NOISE:-true}" \
+    lidar_hz:="${LIDAR_HZ:-10.0}" bridge:=false gui:=false rviz:=false > "$launch_log" 2>&1 &
 launch_pid=$!
 cleanup() {
     trap - EXIT TERM INT
@@ -25,8 +28,28 @@ if ! ros2 run arm_bringup check_stack --robot "$robot" --mode "$mode" --world "$
     cat "$launch_log"
     exit 1
 fi
+# Plan, preview, execute and Stop through the Lichtblick panel's protocol.
+if ! python3 scripts/check_moveit.py; then
+    cat "$launch_log"
+    exit 1
+fi
 if ((${#sensor_args[@]})); then
     if ! python3 scripts/check_registration.py --world "$world"; then
+        cat "$launch_log"
+        exit 1
+    fi
+fi
+# The occupancy map must hold an obstacle MoveIt does not know. The check's
+# box stands where the workcell is clear.
+if [[ ${ENABLE_PERCEPTION:-false} == true && "$world" == workcell ]]; then
+    if ! python3 scripts/check_perception.py --world "$world"; then
+        cat "$launch_log"
+        exit 1
+    fi
+fi
+# Physics-level pick and place: the gripper must carry the part to its drop frame.
+if [[ "$mode" == gazebo && "$robot" == xarm6 && "$world" == workcell && ${ENABLE_GRIPPER:-true} == true ]]; then
+    if ! python3 scripts/check_pick.py --world "$world" --part pick_cube; then
         cat "$launch_log"
         exit 1
     fi

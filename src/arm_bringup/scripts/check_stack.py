@@ -15,10 +15,11 @@ from moveit_msgs.msg import Constraints, JointConstraint, MoveItErrorCodes, Plan
 from moveit_msgs.srv import GetPlanningScene, GetStateValidity
 from rclpy.action import ActionClient
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from rclpy.time import Time
 from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import JointState, PointCloud2
+from std_msgs.msg import String
 from tf2_ros import Buffer, TransformListener
 from arm_bringup.scene import load_world, quaternion
 
@@ -35,23 +36,17 @@ class StackCheck(Node):
             self.tf_buffer = Buffer(node=self)
             self.tf_listener = TransformListener(self.tf_buffer, self)
             for name in self.cloud_samples:
+                # Clouds are published reliably; a best-effort reader loses
+                # whole 3 MB clouds to single dropped UDP fragments.
                 self.create_subscription(PointCloud2, f"/sensor/lidar/{name}/points",
                                          lambda message, name=name: self.on_cloud(name, message),
-                                         qos_profile_sensor_data)
+                                         QoSProfile(depth=2, reliability=ReliabilityPolicy.RELIABLE))
         self.scene = load_world(Path(get_package_share_directory("arm_bringup")) / "worlds" / (world + ".sdf"))
-        config_dir = Path(get_package_share_directory("arm_moveit_config")) / "config"
-        if robot == "xarm6":
-            config_dir /= "xarm6"
-        semantic = ET.parse(config_dir / "arm.srdf").getroot()
-        states = {state.attrib["name"]: state for state in semantic.findall("group_state")
-                  if state.attrib["group"] == "arm"}
-        self.joints = [joint.attrib["name"] for joint in states["home"].findall("joint")]
-        self.targets = []
-        self.named_states = states
-        for name in ["ready", *(["sweep"] if "sweep" in states else []), "home"]:
-            values = {joint.attrib["name"]: float(joint.attrib["value"])
-                      for joint in states[name].findall("joint")}
-            self.targets.append((name, [values[joint] for joint in self.joints]))
+        # Named states come from the SRDF MoveIt actually loaded (xacro-processed).
+        self.semantic = None
+        self.create_subscription(String, "/robot_description_semantic",
+                                 lambda message: setattr(self, "semantic", message.data),
+                                 QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.positions = {}
         self.clock_samples = []
         self.create_subscription(JointState, "/joint_states", self.on_joints, qos_profile_sensor_data)
@@ -121,7 +116,7 @@ class StackCheck(Node):
     def check_scene(self):
         if not self.planning_scene.wait_for_service(timeout_sec=30):
             raise RuntimeError("Planning scene service is unavailable")
-        expected = {item.id: item for item in self.scene.objects}
+        expected = {item.id: item for item in self.scene.objects + self.scene.movable}
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
             query = GetPlanningScene.Request()
@@ -142,7 +137,8 @@ class StackCheck(Node):
                 dimensions = obj.primitives[0].dimensions
             if len(dimensions) != len(item.dimensions) or any(abs(a-b) > 1e-6 for a,b in zip(dimensions, item.dimensions)):
                 raise RuntimeError(f"MoveIt geometry differs from SDF: {name}")
-        print(f"PASS: {len(expected)} SDF obstacles loaded into MoveIt ({self.world})", flush=True)
+        print(f"PASS: {len(self.scene.objects)} SDF obstacles and {len(self.scene.movable)} movable parts "
+              f"loaded into MoveIt ({self.world})", flush=True)
 
     def state_validity(self, target):
         if not self.validity.wait_for_service(timeout_sec=15):
@@ -153,7 +149,59 @@ class StackCheck(Node):
         query.robot_state.joint_state.position = target
         return self.result(self.validity.call_async(query), 15, "collision check")
 
+    def load_states(self):
+        self.until(lambda: self.semantic is not None, 30, "MoveIt's robot_description_semantic")
+        semantic = ET.fromstring(self.semantic)
+        groups = {}
+        for state in semantic.findall("group_state"):
+            groups.setdefault(state.attrib["group"], {})[state.attrib["name"]] = {
+                joint.attrib["name"]: float(joint.attrib["value"]) for joint in state.findall("joint")}
+        states = groups["arm"]
+        self.named_states = states
+        self.joints = list(states["home"])
+        self.targets = [(name, [states[name][joint] for joint in self.joints])
+                        for name in ["ready", *(["sweep"] if "sweep" in states else []), "home"]]
+        self.gripper_states = groups.get("gripper", {})
+
+    def move_group(self, group, name, joints, target, plan_only=False, timeout=90):
+        goal = MoveGroup.Goal()
+        request = goal.request
+        request.group_name = group
+        request.pipeline_id = "ompl"
+        request.planner_id = "RRTConnectkConfigDefault"
+        request.num_planning_attempts = 5
+        request.allowed_planning_time = 10.0
+        request.max_velocity_scaling_factor = 0.25
+        request.max_acceleration_scaling_factor = 0.25
+        request.start_state.is_diff = True
+        constraint = Constraints(name=name)
+        for joint, position in zip(joints, target):
+            constraint.joint_constraints.append(JointConstraint(
+                joint_name=joint, position=position, tolerance_above=0.001,
+                tolerance_below=0.001, weight=1.0))
+        request.goal_constraints = [constraint]
+        goal.planning_options.plan_only = plan_only
+        goal.planning_options.planning_scene_diff.is_diff = True
+        goal.planning_options.planning_scene_diff.robot_state.is_diff = True
+        handle = self.result(self.move.send_goal_async(goal), 15, f"MoveIt {name} goal acceptance")
+        if not handle.accepted:
+            raise RuntimeError(f"MoveIt rejected {name}")
+        return self.result(handle.get_result_async(), timeout, f"{name} motion").result
+
+    def check_gripper(self):
+        for name in ["close", "open"]:
+            target = self.gripper_states[name]
+            result = self.move_group("gripper", name, list(target), list(target.values()))
+            if result.error_code.val != MoveItErrorCodes.SUCCESS:
+                raise RuntimeError(f"gripper {name} failed with MoveIt code {result.error_code.val}")
+            self.until(lambda: all(abs(self.positions.get(j, math.inf) - p) < 0.03 for j, p in target.items()),
+                       10, f"measured gripper at {name}")
+            print(f"PASS: planned, executed, and measured gripper {name}", flush=True)
+
     def run(self):
+        if not self.move.wait_for_server(timeout_sec=180):
+            raise RuntimeError("MoveIt move_action is unavailable")
+        self.load_states()
         joints = self.joints
         self.until(lambda: all(j in self.positions for j in joints), 120, "six joint states")
         if self.mode == "gazebo":
@@ -161,74 +209,34 @@ class StackCheck(Node):
                        30, "advancing Gazebo clock")
         if not self.controllers.wait_for_service(timeout_sec=30):
             raise RuntimeError("Controller manager is unavailable")
-        # Bringup starts MoveIt after both controllers finish activating.
-        if not self.move.wait_for_server(timeout_sec=60):
-            raise RuntimeError("MoveIt move_action is unavailable")
         self.check_scene()
         if self.ousters:
             self.check_ousters()
         response = self.result(self.controllers.call_async(ListControllers.Request()), 15, "controller list")
         states = {c.name: c.state for c in response.controller}
-        for name in ["joint_state_broadcaster", "arm_controller"]:
+        expected = ["joint_state_broadcaster", "arm_controller", *(["gripper_controller"] if self.gripper_states else [])]
+        for name in expected:
             if states.get(name) != "active":
                 raise RuntimeError(f"{name} is not active: {states}")
         for name, target in self.targets:
             validity = self.state_validity(target)
             if not validity.valid:
                 raise RuntimeError(f"{name} is in collision: {[(c.contact_body_1, c.contact_body_2) for c in validity.contacts]}")
-            goal = MoveGroup.Goal()
-            request = goal.request
-            request.group_name = "arm"
-            request.pipeline_id = "ompl"
-            request.planner_id = "RRTConnectkConfigDefault"
-            request.num_planning_attempts = 5
-            request.allowed_planning_time = 10.0
-            request.max_velocity_scaling_factor = 0.25
-            request.max_acceleration_scaling_factor = 0.25
-            request.start_state.is_diff = True
-            request.workspace_parameters.header.frame_id = "world"
-            request.workspace_parameters.min_corner.x = -1.0
-            request.workspace_parameters.min_corner.y = -1.0
-            request.workspace_parameters.min_corner.z = -0.1
-            request.workspace_parameters.max_corner.x = 1.0
-            request.workspace_parameters.max_corner.y = 1.0
-            request.workspace_parameters.max_corner.z = self.scene.mount[2] + 1.5
-            constraint = Constraints(name=name)
-            for joint, position in zip(joints, target):
-                constraint.joint_constraints.append(JointConstraint(
-                    joint_name=joint, position=position, tolerance_above=0.001,
-                    tolerance_below=0.001, weight=1.0))
-            request.goal_constraints = [constraint]
-            goal.planning_options.plan_only = False
-            goal.planning_options.planning_scene_diff.is_diff = True
-            goal.planning_options.planning_scene_diff.robot_state.is_diff = True
-            handle = self.result(self.move.send_goal_async(goal), 15, "MoveIt goal acceptance")
-            if not handle.accepted:
-                raise RuntimeError(f"MoveIt rejected {name}")
-            result = self.result(handle.get_result_async(), 90, f"{name} motion").result
+            result = self.move_group("arm", name, joints, target)
             if result.error_code.val != MoveItErrorCodes.SUCCESS:
                 raise RuntimeError(f"{name} failed with MoveIt code {result.error_code.val}")
             self.until(lambda: all(abs(self.positions[j] - p) < 0.03 for j, p in zip(joints, target)),
                        10, f"measured joints at {name}")
             print(f"PASS: planned, executed, and measured {name}", flush=True)
+        if self.gripper_states:
+            self.check_gripper()
         if self.world == "obstacle_course" and self.robot == "xarm6":
-            blocked = {j.attrib["name"]: float(j.attrib["value"])
-                       for j in self.named_states["blocked"].findall("joint")}
-            target = [blocked[j] for j in joints]
+            target = [self.named_states["blocked"][j] for j in joints]
             validity = self.state_validity(target)
             if validity.valid or not any("blocking_post" in c.contact_body_1 or "blocking_post" in c.contact_body_2
                                          for c in validity.contacts):
                 raise RuntimeError("Expected the SDF blocking post to invalidate the blocked pose")
-            # The last request is the verified home goal; replace only its target and plan without executing.
-            for constraint, position in zip(goal.request.goal_constraints[0].joint_constraints, target):
-                constraint.position = position
-            goal.request.allowed_planning_time = 2.0
-            goal.request.num_planning_attempts = 1
-            goal.planning_options.plan_only = True
-            handle = self.result(self.move.send_goal_async(goal), 15, "blocked goal acceptance")
-            if not handle.accepted:
-                raise RuntimeError("MoveIt did not accept the planning request for the negative check")
-            result = self.result(handle.get_result_async(), 30, "blocked goal rejection").result
+            result = self.move_group("arm", "blocked", joints, target, plan_only=True, timeout=30)
             if result.error_code.val == MoveItErrorCodes.SUCCESS:
                 raise RuntimeError("MoveIt unexpectedly planned a goal inside the blocking post")
             print("PASS: actual SDF blocking post prevents the blocked pose and MoveIt rejects the plan", flush=True)

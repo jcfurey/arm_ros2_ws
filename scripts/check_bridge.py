@@ -13,8 +13,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default="ws://127.0.0.1:8765")
     parser.add_argument("--no-ousters", action="store_true")
-    parser.add_argument("--pose", choices=["ready", "sweep", "home"],
+    motion = parser.add_mutually_exclusive_group()
+    motion.add_argument("--pose", choices=["ready", "sweep", "home"],
                         help="Also publish a named pose through the bridge and await execution")
+    motion.add_argument("--plan", choices=["ready", "sweep", "home"],
+                        help="Publish a plan-only command through the bridge and await its preview")
     args = parser.parse_args()
     required = {"/clock", "/tf", "/tf_static", "/scene/markers", "/robot/markers", "/motion/status"}
     if not args.no_ousters:
@@ -30,13 +33,15 @@ def main():
                 raise
             time.sleep(0.5)
     subscriptions, received = {}, set()
+    # The robot description references the simplified copies of UFACTORY's meshes.
     assets = {
-        1: "package://xarm_description/meshes/xarm6/visual/link_base.stl",
-        2: "file://" + get_package_share_directory("xarm_description") + "/meshes/xarm6/visual/link_base.stl",
+        1: "package://arm_description/meshes/sim/xarm6/visual/link_base.stl",
+        2: "file://" + get_package_share_directory("arm_description") + "/meshes/sim/xarm6/visual/link_base.stl",
     }
     assets_received = set()
     command_sent = motion_started = False
-    if args.pose:
+    target = args.pose or args.plan
+    if target:
         from rclpy.serialization import deserialize_message, serialize_message
         from std_msgs.msg import String
     try:
@@ -53,7 +58,7 @@ def main():
                         raise RuntimeError("Bridge does not support remote mesh assets")
                     for request, uri in assets.items():
                         connection.send(json.dumps({"op": "fetchAsset", "requestId": request, "uri": uri}))
-                    if args.pose:
+                    if target:
                         if "clientPublish" not in message.get("capabilities", []):
                             raise RuntimeError("Bridge does not support publishing motion commands")
                         connection.send(json.dumps({"op": "advertise", "channels": [{
@@ -76,12 +81,15 @@ def main():
                     subscription = struct.unpack_from("<I", message, 1)[0]
                     if subscription in subscriptions:
                         received.add(subscriptions[subscription])
-                        if args.pose and command_sent and subscriptions[subscription] == "/motion/status":
+                        if target and command_sent and subscriptions[subscription] == "/motion/status":
                             status = json.loads(deserialize_message(message[13:], String).data)
-                            if status.get("pose") == args.pose:
+                            if status.get("pose") == target:
                                 motion_started |= status["state"] in ("planning", "executing")
                                 if status["state"] in ("failed", "rejected", "stopped"):
                                     raise RuntimeError(f"Motion command failed: {status}")
+                                if args.plan and motion_started and status["state"] == "planned" and status.get("can_execute"):
+                                    print(f"PASS: bridge-published plan {target} produced an executable preview without moving")
+                                    return
                                 if motion_started and status["state"] == "succeeded":
                                     print(f"PASS: bridge-published {args.pose} command planned and executed")
                                     return
@@ -95,13 +103,14 @@ def main():
                 if not command_sent:
                     print("PASS: Foxglove WebSocket schemas, clock, TF, scene, robot, status, and sensor streams")
                     print("PASS: package:// and file:// robot mesh assets fetched through the bridge")
-                    if not args.pose:
+                    if not target:
                         return
-                    connection.send_binary(struct.pack("<BI", 1, 1) + serialize_message(String(data=args.pose)))
+                    command = f"plan {target}" if args.plan else target
+                    connection.send_binary(struct.pack("<BI", 1, 1) + serialize_message(String(data=command)))
                     command_sent = True
                     deadline = time.monotonic() + 60
         if command_sent:
-            raise RuntimeError(f"No successful motion status for bridge-published {args.pose} command")
+            raise RuntimeError(f"No successful motion status for bridge-published {target} command")
         raise RuntimeError(f"Missing bridge streams: {required - received}; mesh assets: {assets_received}")
     finally:
         connection.close()
